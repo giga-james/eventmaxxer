@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env*
+state/
+campaigns/
+.runtime/
+*.sqlite*
+runner.json

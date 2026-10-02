@@ -1,0 +1,57 @@
+# Private state and commands
+
+All commands accept --home /absolute/private/state (default ~/.local/share/eventmaxxer).
+SQLite stores facts/history, campaigns, events, URL aliases, attempts, questions, service
+cooldowns and tracker sync. Use one home across campaigns on the same registration account.
+The scripts do not navigate sites, send applications, interpret eligibility or grant consent.
+
+Use --json @/absolute/private/input.json for longer data; never interpolate untrusted
+form text into shell commands. Every mutation is transactional. A new init never overwrites
+an existing campaign.
+
+    python3 scripts/state.py init --campaign conference --account primary --json '{"sources":["https://events.example.org"],"discovery_complete":false,"review_during_cooldown":false,"preferences":{"free_only":true,"skip_hackathons":true,"allow_overlaps":true,"product_marketing":false}}'
+    python3 scripts/state.py authorize --campaign conference --json '{"evidence":"User authorized free eligible networking applications on YYYY-MM-DD; no purchases or new accounts."}'
+    python3 scripts/state.py fact --json '{"name":"job_title","value":"Founder","source":"User on YYYY-MM-DD","share":"routine"}'
+    python3 scripts/state.py profile
+    python3 scripts/state.py add --campaign conference --url https://events.example.org/one --json '{"title":"Founder Meetup","service":"events.example.org"}'
+
+The add command returns the stable event ID. Save that ID and use it for later operations.
+Known tracking query keys are stripped; other query parameters are preserved. Use alias
+only after evidence establishes that another registration URL is the same event.
+
+    python3 scripts/state.py review --event EVENT_ID --json '{"status":"ready","evidence":"Page explicitly free and open to founders","metadata":{"free":true,"eligible":true,"service":"events.example.org","start":"2026-10-07T17:30:00-07:00","end":"2026-10-07T20:30:00-07:00","offers":"Talks and networking","fit":"Meet founders","location":"Published venue","hosts":"Published host"}}'
+    python3 scripts/state.py gate --campaign conference
+    python3 scripts/state.py reserve --campaign conference --event EVENT_ID
+
+Only reserve when the form is ready for its final submission. Complete that action with
+the agent's supported browser. Then use one observed result:
+
+    python3 scripts/state.py result --event EVENT_ID --json '{"outcome":"pending","evidence":"Visible confirmation: request sent; awaiting approval"}'
+    python3 scripts/state.py ack --campaign conference --event EVENT_ID --json '{"evidence":"Read back matching event key and Pending row from tracker"}'
+
+Rate-limit result instead: outcome rate_limited, evidence, optional retry_after absolute
+UTC epoch. Without an explicit deadline, the script uses 20 minutes. Unknown result:
+leave submitting; gate returns reconcile until actual state is established. not_submitted
+requires evidence that it did not submit, not just lack of a confirmation.
+
+Missing facts:
+
+    python3 scripts/state.py question --event EVENT_ID --json '{"question":"Exact required question and choices"}'
+    python3 scripts/state.py review --event EVENT_ID --json '{"status":"needs_input","evidence":"Required factual answer missing"}'
+    python3 scripts/state.py answer --json '{"qid":1,"answer":"User answer","source":"User on YYYY-MM-DD"}'
+
+Answer does not auto-promote a fact or make the event ready. Read open questions from the
+private SQLite database as needed, or maintain the user-facing question list in checkpoint.md.
+A facts entry has share routine/ask/never, source, updated timestamp, optional expires epoch,
+and a complete version history. Stale values are flagged by profile; they are not safe to
+reuse silently. Runtime approval rules always apply.
+
+Use configure for sources, tracker, preferences, discovery_complete and review_during_cooldown.
+Use list for all campaign records, pause to deactivate, authorize to resume within scope,
+and finish after source coverage and unresolved/sync queues have been checked. Date metadata
+uses offset-aware ISO timestamps; exports select the user's requested timezone.
+
+Discovery checkpoints (private Markdown beside the database) hold source URLs, pagination
+and filter cursor, observed counts, pending source questions and last verified source pass.
+Mark discovery_complete only after exhausting all selected sources. Reopen it when the
+user adds a new source or explicitly requests a fresh scan.

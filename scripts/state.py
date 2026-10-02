@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""Private, transactional event application state. No network or browser access."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+import time
+from contextlib import contextmanager
+from urllib.parse import urlsplit, urlunsplit
+
+DEFAULT_HOME = Path.home() / '.local/share/eventmaxxer'
+OUTCOMES = {'pending', 'waitlisted', 'going', 'approved', 'declined'}
+
+
+def canonical_url(url):
+    p = urlsplit(url)
+    if p.scheme not in ('http', 'https') or not p.hostname or p.username or p.password:
+        raise ValueError('Expected an HTTP(S) event URL without credentials')
+    host = p.netloc.lower()
+    path = p.path.rstrip('/') or '/'
+    # Only known tracking parameters can be removed. Unknown query IDs are identities.
+    from urllib.parse import parse_qsl, urlencode
+    query = urlencode([(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+                       if not k.startswith('utm_') and not (p.hostname.lower() in ('partiful.com', 'www.partiful.com') and k in ('rsvp', 'source', 'c'))])
+    return urlunsplit((p.scheme.lower(), host, path, query, '' if p.hostname.lower() in ('partiful.com', 'www.partiful.com') else p.fragment))
+
+
+class Store:
+    def __init__(self, home=DEFAULT_HOME):
+        self.home = Path(home).expanduser().resolve()
+        self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.db = sqlite3.connect(self.home / 'state.sqlite', timeout=10)
+        os.chmod(self.home / 'state.sqlite', 0o600)
+        self.db.row_factory = sqlite3.Row
+        self.db.executescript('''
+        PRAGMA foreign_keys=ON;
+        CREATE TABLE IF NOT EXISTS campaigns (
+          id TEXT PRIMARY KEY, account TEXT NOT NULL, config TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 0, complete INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS facts (
+          name TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL,
+          updated REAL NOT NULL, expires REAL, share TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS fact_history (
+          name TEXT, value TEXT, source TEXT, updated REAL, expires REAL, share TEXT);
+        CREATE TABLE IF NOT EXISTS events (
+          id TEXT PRIMARY KEY, account TEXT NOT NULL, url TEXT NOT NULL,
+          metadata TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'discovered',
+          evidence TEXT, decision TEXT NOT NULL DEFAULT 'Undecided', notes TEXT NOT NULL DEFAULT '',
+          UNIQUE(account, url));
+        CREATE TABLE IF NOT EXISTS members (
+          campaign TEXT REFERENCES campaigns(id), event TEXT REFERENCES events(id),
+          PRIMARY KEY(campaign,event));
+        CREATE TABLE IF NOT EXISTS aliases (
+          account TEXT, url TEXT, event TEXT REFERENCES events(id), PRIMARY KEY(account,url));
+        CREATE TABLE IF NOT EXISTS attempts (
+          id INTEGER PRIMARY KEY, event TEXT REFERENCES events(id), started REAL,
+          finished REAL, outcome TEXT, evidence TEXT);
+        CREATE TABLE IF NOT EXISTS cooldowns (
+          account TEXT, service TEXT, until REAL NOT NULL, evidence TEXT NOT NULL,
+          PRIMARY KEY(account,service));
+        CREATE TABLE IF NOT EXISTS questions (
+          id INTEGER PRIMARY KEY, event TEXT REFERENCES events(id), question TEXT,
+          answer TEXT, source TEXT);
+        CREATE TABLE IF NOT EXISTS sync (
+          campaign TEXT, event TEXT REFERENCES events(id), pending INTEGER NOT NULL DEFAULT 1,
+          evidence TEXT, PRIMARY KEY(campaign,event));
+        ''')
+
+    @contextmanager
+    def transaction(self):
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            yield
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def campaign(self, name):
+        row = self.db.execute('SELECT * FROM campaigns WHERE id=?', (name,)).fetchone()
+        if not row:
+            raise ValueError('Unknown campaign')
+        return dict(row)
+
+    def init(self, name, account, config):
+        if not name or not account or not isinstance(config.get('sources'), list):
+            raise ValueError('Campaign name, account and sources list required')
+        with self.transaction():
+            self.db.execute('INSERT INTO campaigns(id,account,config) VALUES(?,?,?)',
+                            (name, account, json.dumps(config)))
+
+    def authorize(self, campaign, evidence):
+        if not evidence.strip():
+            raise ValueError('Record user authorization and scope')
+        with self.transaction():
+            row = self.campaign(campaign)
+            config = json.loads(row['config'])
+            config['authorization'] = evidence
+            self.db.execute('UPDATE campaigns SET active=1,config=? WHERE id=?',
+                            (json.dumps(config), campaign))
+
+    def fact(self, name, value, source, share='ask', expires=None):
+        if share not in ('routine', 'ask', 'never') or not source.strip():
+            raise ValueError('Fact needs provenance and sharing classification')
+        values = (name, json.dumps(value), source, time.time(), expires, share)
+        with self.transaction():
+            self.db.execute('INSERT INTO fact_history VALUES(?,?,?,?,?,?)', values)
+            self.db.execute('INSERT OR REPLACE INTO facts VALUES(?,?,?,?,?,?)', values)
+
+    def profile(self, now=None):
+        now = time.time() if now is None else now
+        return [dict(r, value=json.loads(r['value']), stale=r['expires'] is not None and r['expires'] <= now)
+                for r in self.db.execute('SELECT * FROM facts ORDER BY name')]
+
+    def add(self, campaign, url, metadata):
+        c = self.campaign(campaign)
+        url = canonical_url(url)
+        with self.transaction():
+            alias = self.db.execute('SELECT event FROM aliases WHERE account=? AND url=?', (c['account'], url)).fetchone()
+            eid = alias['event'] if alias else hashlib.sha256((c['account'] + '\n' + url).encode()).hexdigest()[:24]
+            self.db.execute('INSERT OR IGNORE INTO events(id,account,url,metadata) VALUES(?,?,?,?)',
+                            (eid, c['account'], url, json.dumps(metadata)))
+            self.db.execute('INSERT OR IGNORE INTO members VALUES(?,?)', (campaign, eid))
+            # A preexisting success in this account still needs exporting for this campaign.
+            status = self.db.execute('SELECT status FROM events WHERE id=?', (eid,)).fetchone()['status']
+            if status in OUTCOMES:
+                self.db.execute('INSERT OR IGNORE INTO sync(campaign,event) VALUES(?,?)', (campaign, eid))
+        return eid
+
+    def event(self, eid):
+        row = self.db.execute('SELECT * FROM events WHERE id=?', (eid,)).fetchone()
+        if not row:
+            raise ValueError('Unknown event')
+        return dict(row, metadata=json.loads(row['metadata']))
+
+    def alias(self, eid, url):
+        e = self.event(eid)
+        url = canonical_url(url)
+        with self.transaction():
+            other = self.db.execute('SELECT id FROM events WHERE account=? AND url=?', (e['account'], url)).fetchone()
+            if other and other['id'] != eid:
+                raise ValueError('Existing event: reconcile records before aliasing')
+            self.db.execute('INSERT INTO aliases VALUES(?,?,?)', (e['account'], url, eid))
+
+    def review(self, eid, status, evidence, metadata=None):
+        if status not in ('ready', 'skipped', 'needs_input', 'closed') or not evidence.strip():
+            raise ValueError('Review needs a supported status and evidence')
+        with self.transaction():
+            e = self.event(eid)
+            if e['status'] in OUTCOMES or e['status'] == 'submitting':
+                raise ValueError('Do not overwrite a submission with review state')
+            data = e['metadata']
+            if metadata:
+                data.update(metadata)
+            if status == 'ready' and not (data.get('free') is True and data.get('eligible') is True and data.get('service')):
+                raise ValueError('Ready requires verified free, eligible and service')
+            self.db.execute('UPDATE events SET status=?,evidence=?,metadata=? WHERE id=?',
+                            (status, evidence, json.dumps(data), eid))
+
+    def gate(self, campaign, now=None):
+        now = time.time() if now is None else now
+        c = self.campaign(campaign)
+        if c['complete'] or not c['active']:
+            return {'action': 'idle', 'reason': 'complete' if c['complete'] else 'draft_or_paused'}
+        account = c['account']
+        unknown = self.db.execute("SELECT id FROM events WHERE account=? AND status='submitting' LIMIT 1", (account,)).fetchone()
+        if unknown:
+            return {'action': 'reconcile', 'event': unknown['id']}
+        pending = self.db.execute('SELECT sync.event,sync.campaign FROM sync JOIN campaigns c ON c.id=sync.campaign WHERE c.account=? AND sync.pending=1 LIMIT 1', (account,)).fetchone()
+        if pending:
+            return {'action': 'sync', 'event': pending['event'], 'campaign': pending['campaign']}
+        ready, deadlines, needs_review = [], [], False
+        for r in self.db.execute('SELECT e.* FROM events e JOIN members m ON e.id=m.event WHERE m.campaign=? ORDER BY e.rowid', (campaign,)):
+            if r['status'] == 'discovered':
+                needs_review = True
+            if r['status'] != 'ready':
+                continue
+            service = json.loads(r['metadata'])['service']
+            hold = self.db.execute('SELECT until FROM cooldowns WHERE account=? AND service=?', (account, service)).fetchone()
+            if hold and hold['until'] > now:
+                deadlines.append(hold['until'])
+            else:
+                ready.append(r['id'])
+        if ready:
+            return {'action': 'apply', 'event': ready[0]}
+        config = json.loads(c['config'])
+        if needs_review or not config.get('discovery_complete', False):
+            # Optional low-resource mode suppresses discovery while a known service is cooling down.
+            holds = self.db.execute('SELECT until FROM cooldowns WHERE account=? AND until>?', (account, now)).fetchall()
+            if not config.get('review_during_cooldown', True) and holds:
+                deadlines.extend(h['until'] for h in holds)
+            else:
+                return {'action': 'review'}
+        if deadlines:
+            return {'action': 'wait', 'retry_at': min(deadlines)}
+        return {'action': 'idle', 'reason': 'no_actionable_events'}
+
+    def reserve(self, campaign, eid, now=None):
+        now = time.time() if now is None else now
+        with self.transaction():
+            gate = self.gate(campaign, now)
+            if gate != {'action': 'apply', 'event': eid}:
+                raise ValueError('Submission blocked: ' + json.dumps(gate))
+            self.db.execute("UPDATE events SET status='submitting' WHERE id=?", (eid,))
+            return self.db.execute('INSERT INTO attempts(event,started) VALUES(?,?)', (eid, now)).lastrowid
+
+    def result(self, eid, outcome, evidence, now=None, retry_after=None):
+        now = time.time() if now is None else now
+        if outcome not in OUTCOMES | {'rate_limited', 'not_submitted'} or not evidence.strip():
+            raise ValueError('Explicit observed outcome and evidence required')
+        with self.transaction():
+            e = self.event(eid)
+            if e['status'] != 'submitting':
+                raise ValueError('No reserved/uncertain submission to reconcile')
+            status = 'ready' if outcome in ('rate_limited', 'not_submitted') else outcome
+            self.db.execute('UPDATE events SET status=?,evidence=? WHERE id=?', (status, evidence, eid))
+            self.db.execute('UPDATE attempts SET finished=?,outcome=?,evidence=? WHERE event=? AND finished IS NULL',
+                            (now, outcome, evidence, eid))
+            service = e['metadata']['service']
+            if outcome == 'rate_limited':
+                # Retry-After is an absolute UTC epoch; never shorten a server deadline.
+                if retry_after is not None and retry_after < now:
+                    raise ValueError('Retry-After must be in the future')
+                until = max(now + 1200, retry_after or 0)
+                self.db.execute('''INSERT INTO cooldowns VALUES(?,?,?,?) ON CONFLICT(account,service)
+                    DO UPDATE SET until=MAX(until,excluded.until),evidence=excluded.evidence''',
+                    (e['account'], service, until, evidence))
+            elif outcome in OUTCOMES:
+                self.db.execute('DELETE FROM cooldowns WHERE account=? AND service=?', (e['account'], service))
+                self.db.execute('INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT campaign,event,1 FROM members WHERE event=?', (eid,))
+
+    def ack(self, campaign, eid, evidence):
+        if not evidence.strip():
+            raise ValueError('Tracker read-back evidence required')
+        with self.transaction():
+            self.db.execute('UPDATE sync SET pending=0,evidence=? WHERE campaign=? AND event=?', (evidence, campaign, eid))
+
+    def listing(self, campaign):
+        self.campaign(campaign)
+        return [self.event(r['event']) for r in self.db.execute('SELECT event FROM members WHERE campaign=?', (campaign,))]
+
+    def question(self, eid, text):
+        self.event(eid)
+        with self.transaction():
+            return self.db.execute('INSERT INTO questions(event,question) VALUES(?,?)', (eid, text)).lastrowid
+
+    def answer(self, qid, answer, source):
+        if not source.strip():
+            raise ValueError('Answer provenance required')
+        with self.transaction():
+            row = self.db.execute('SELECT * FROM questions WHERE id=?', (qid,)).fetchone()
+            if not row:
+                raise ValueError('Unknown question')
+            self.db.execute('UPDATE questions SET answer=?,source=? WHERE id=?', (answer, source, qid))
+        # Does not make the event ready or promote an event-specific answer into a global fact.
+
+    def configure(self, campaign, changes):
+        allowed = {'discovery_complete', 'review_during_cooldown', 'tracker', 'sources', 'preferences'}
+        if set(changes) - allowed:
+            raise ValueError('Unknown or protected configuration fields')
+        with self.transaction():
+            c = self.campaign(campaign)
+            config = json.loads(c['config'])
+            config.update(changes)
+            self.db.execute('UPDATE campaigns SET config=? WHERE id=?', (json.dumps(config), campaign))
+
+    def finish(self, campaign):
+        with self.transaction():
+            c = self.campaign(campaign)
+            if not json.loads(c['config']).get('discovery_complete'):
+                raise ValueError('Discovery not complete')
+            if any(e['status'] in ('discovered', 'ready', 'submitting', 'needs_input') for e in self.listing(campaign)):
+                raise ValueError('Unresolved events remain')
+            if self.db.execute('SELECT 1 FROM sync WHERE campaign=? AND pending=1', (campaign,)).fetchone():
+                raise ValueError('Tracker sync pending')
+            self.db.execute('UPDATE campaigns SET complete=1,active=0 WHERE id=?', (campaign,))
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--home', type=Path, default=DEFAULT_HOME)
+    p.add_argument('command', choices=['init','authorize','profile','fact','add','alias','review','gate','reserve','result','ack','list','question','answer','configure','finish','pause'])
+    p.add_argument('--campaign'); p.add_argument('--account'); p.add_argument('--event'); p.add_argument('--url')
+    p.add_argument('--json', default='{}', help='JSON data, or @path for a private JSON file')
+    a = p.parse_args()
+    data = json.loads(Path(a.json[1:]).read_text() if a.json.startswith('@') else a.json)
+    s = Store(a.home)
+    cmd = a.command
+    if cmd == 'init': out = s.init(a.campaign, a.account, data)
+    elif cmd == 'authorize': out = s.authorize(a.campaign, data['evidence'])
+    elif cmd == 'profile': out = s.profile()
+    elif cmd == 'fact': out = s.fact(**data)
+    elif cmd == 'add': out = s.add(a.campaign, a.url, data)
+    elif cmd == 'alias': out = s.alias(a.event, a.url)
+    elif cmd == 'review': out = s.review(a.event, **data)
+    elif cmd == 'gate': out = s.gate(a.campaign)
+    elif cmd == 'reserve': out = s.reserve(a.campaign, a.event)
+    elif cmd == 'result': out = s.result(a.event, **data)
+    elif cmd == 'ack': out = s.ack(a.campaign, a.event, data['evidence'])
+    elif cmd == 'list': out = s.listing(a.campaign)
+    elif cmd == 'question': out = s.question(a.event, data['question'])
+    elif cmd == 'answer': out = s.answer(**data)
+    elif cmd == 'configure': out = s.configure(a.campaign, data)
+    elif cmd == 'finish': out = s.finish(a.campaign)
+    elif cmd == 'pause':
+        s.campaign(a.campaign)
+        with s.transaction(): s.db.execute('UPDATE campaigns SET active=0 WHERE id=?', (a.campaign,))
+        out = None
+    print(json.dumps(out if out is not None else {'ok': True}, indent=2))
+
+if __name__ == '__main__':
+    main()
