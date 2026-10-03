@@ -9,7 +9,7 @@
   <a href="#validation"><img src="https://img.shields.io/badge/Status-Experimental-f4a7c3" alt="Status: experimental"></a>
 </p>
 
-[Watch the Eventmaxxer demo](assets/eventmaxxer-header-10x.mp4)
+https://github.com/user-attachments/assets/1c31d9b3-0cf7-4643-a9a0-9776463e8cca
 
 <p align="center"><sub>45 minutes of me afk sped up 10x</sub></p>
 
