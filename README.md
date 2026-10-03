@@ -38,6 +38,15 @@ Your chosen agent supplies the model, browser and connected tools. Eventmaxxer s
 the event workflow and reliable local state. Inspired by
 [Continual Outreach](https://github.com/giga-james/continual-outreach).
 
+## Results
+
+An event calendar full of options:
+
+<p align="center">
+  <img src="assets/eventmaxxer-outcome.png" width="100%" alt="Event dashboard welcoming James and showing 564 upcoming events.">
+  <br><sub>left to go watch jojo's, but we keep eventmaxxing</sub>
+</p>
+
 ## Three core features
 
 1. **A maintained applicant profile.** Reuse verified professional facts, preserve their
@@ -76,7 +85,7 @@ Requires Python 3.9+ on macOS/Linux for the optional local runner; no third-part
 packages are needed. The agent runtime must provide an authenticated supported browser.
 Spreadsheet integration additionally requires a Sheets connector.
 
-The header video is supplied for this README; applicant profiles and campaign records
+The demo video and results screenshot are supplied for this README; applicant profiles and campaign records
 stay outside the repository. State defaults to
 ~/.local/share/eventmaxxer/ and should be backed up privately. The same profile and
 account labels should be reused when switching agents or campaigns.
