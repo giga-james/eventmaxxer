@@ -1,73 +1,118 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="960" viewBox="0 0 1120 960" role="img" aria-labelledby="title desc">
-<title id="title">Eventmaxxer: each campaign has a tracker and recommendations</title>
-<desc id="desc">A campaign defines its goal, audience, dates and constraints. The agent discovers, qualifies, applies and verifies events into that campaign's tracker. Recommendations use the tracker and networking goal to create an evidence-backed attendance shortlist. The user decides and gives feedback. Reusable profile facts and private state support campaigns; a cooldown gate coordinates retries.</desc>
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
-<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b40}.title{font-family:Georgia,serif;font-size:28px}.label{font-size:17px;font-weight:600}.detail{font-size:14px;fill:#52667c}.kicker{font-size:12px;font-weight:700;letter-spacing:1.3px;fill:#61748a}.edge{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#arrow)}</style>
-<rect width="1120" height="960" rx="12" fill="white"/>
-<text x="40" y="45" class="title">Eventmaxxer: from broad options to the right conversations</text>
-<text x="40" y="73" class="detail">Each campaign owns its goal, tracker and recommendations. You choose what to attend.</text>
-<path d="M40 92H1080" stroke="#dce3ea"/>
-<rect x="40" y="115" width="1040" height="610" rx="12" fill="#f5f7fc" stroke="#dbe2ef"/>
-<text x="60" y="143" class="kicker">ONE CAMPAIGN / GOAL + SCOPE + TRACKER + RECOMMENDATIONS</text>
-<rect x="60" y="165" width="460" height="100" rx="7" fill="#fffaf0" stroke="#d7c298"/>
-<text x="78" y="194" class="label">Define the campaign</text>
-<text x="78" y="220" class="detail">People to meet + desired outcome</text>
-<text x="78" y="241" class="detail">Dates, location, capacity + application permission</text>
-<rect x="600" y="165" width="460" height="100" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="618" y="194" class="label">Ask, learn and re-review</text>
-<text x="618" y="220" class="detail">Ask for missing facts; save confirmed reusable answers</text>
-<text x="618" y="241" class="detail">Update the profile, then recheck event eligibility</text>
-<text x="60" y="306" class="kicker">01 / BUILD OPTIONS</text>
-<rect x="60" y="325" width="235" height="85" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="78" y="354" class="label">Discover</text>
-<text x="78" y="380" class="detail">Search + scan</text>
-<rect x="315" y="325" width="235" height="85" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="333" y="354" class="label">Qualify</text>
-<text x="333" y="380" class="detail">Fit + eligibility</text>
-<rect x="570" y="325" width="235" height="85" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="588" y="354" class="label">Apply</text>
-<text x="588" y="380" class="detail">Fill + submit</text>
-<rect x="825" y="325" width="235" height="85" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="843" y="354" class="label">Verify</text>
-<text x="843" y="380" class="detail">Observe actual outcome</text>
-<path class="edge" d="M290 265V325"/>
-<path class="edge" d="M295 367H315"/>
-<path class="edge" d="M550 367H570"/>
-<path class="edge" d="M805 367H825"/>
-<path class="edge" d="M432 325V286H830V265"/>
-<rect x="60" y="460" width="310" height="110" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="78" y="489" class="label">Campaign tracker</text>
-<text x="78" y="515" class="detail">Events + registration status</text>
-<text x="78" y="536" class="detail">Your decisions + attendance notes</text>
-<text x="78" y="557" class="detail">One source of truth for this campaign</text>
-<rect x="410" y="460" width="310" height="110" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="428" y="489" class="label">Recommendation layer</text>
-<text x="428" y="515" class="detail">Target people + conversation access</text>
-<text x="428" y="536" class="detail">Evidence, confidence + known conflicts</text>
-<text x="428" y="557" class="detail">Rank options within your capacity</text>
-<rect x="760" y="460" width="300" height="110" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="778" y="489" class="label">Attendance shortlist</text>
-<text x="778" y="515" class="detail">Strongest admitted options</text>
-<text x="778" y="536" class="detail">Conditional backups shown separately</text>
-<text x="778" y="557" class="detail">Who to seek + what to ask</text>
-<path class="edge" d="M942 410V422H350V450H215V460"/>
-<path class="edge" d="M370 515H410"/>
-<path class="edge" d="M720 515H760"/>
-<text x="60" y="444" class="kicker">02 / PRIORITIZE YOUR TIME</text>
-<rect x="410" y="620" width="650" height="80" rx="7" fill="#fffaf0" stroke="#d7c298"/>
-<text x="428" y="649" class="label">You decide, attend and give feedback</text>
-<text x="428" y="675" class="detail">Useful conversations and follow-ups refine the next recommendation</text>
-<path class="edge" d="M910 570V620"/>
-<path class="edge" d="M410 659H215V570"/>
-<text x="60" y="752" class="kicker">SHARED SUPPORT / PRIVATE STATE + RECOVERY</text>
-<rect x="60" y="775" width="470" height="105" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="78" y="804" class="label">Reusable profile + private state</text>
-<text x="78" y="830" class="detail">Confirmed facts, canonical event keys and reservations</text>
-<text x="78" y="851" class="detail">Campaign-specific outcomes and assessments</text>
-<text x="78" y="872" class="detail">Personal data stays outside the repository</text>
-<rect x="590" y="775" width="470" height="105" rx="7" fill="#fff" stroke="#aabbd5"/>
-<text x="608" y="804" class="label">Cooldown gate</text>
-<text x="608" y="830" class="detail">Rate limited → save deadline → one due retry</text>
-<text x="608" y="851" class="detail">One scheduler per account; preserve existing campaigns</text>
-<text x="608" y="872" class="detail">Recommendations do not submit or cancel applications</text>
-<path d="M40 905H1080" stroke="#dce3ea"/><text x="60" y="932" class="detail">Repeat this campaign structure for a different goal or event season, reusing appropriate profile facts.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1140" viewBox="0 0 1200 1140" role="img" aria-labelledby="title desc">
+<title id="title">Eventmaxxer — a layered campaign architecture</title>
+<desc id="desc">Each campaign has four layers: intent, execution, recommendations and human decisions. Goals guide discovery, qualification, application and verification into a campaign tracker. The tracker and goal feed evidence-backed recommendations and a shortlist. Attendance feedback returns to the tracker to inform future recommendations. Private profile facts and a cooldown gate support every campaign.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8191ad"/></marker>
+<symbol id="target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+<symbol id="chat" viewBox="0 0 24 24"><path d="M4 4h16v12H9l-5 4Z"/><path d="M8 8h8M8 12h5"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+<symbol id="filter" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v7l-4 2v-9Z"/></symbol>
+<symbol id="send" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-3-8Z M10 13 21 3"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6Z M8 12l3 3 5-6"/></symbol>
+<symbol id="table" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M10 9v12"/></symbol>
+<symbol id="spark" viewBox="0 0 24 24"><path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3Z"/></symbol>
+<symbol id="list" viewBox="0 0 24 24"><path d="m3 6 2 2 3-4M11 6h10M3 13h4M11 13h10M3 20h4M11 20h10"/></symbol>
+<symbol id="people" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-4a6 6 0 0 1 12 0v4M17 4a3 3 0 0 1 0 6M18 14c3 0 4 2 4 5v2"/></symbol>
+<symbol id="lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 14v3"/></symbol>
+<symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+</defs>
+<style>
+text{font-family:Arial,Helvetica,sans-serif;fill:#17243c}
+.heading{font-size:20px;font-weight:700}.body{font-size:16px;fill:#4b5c77}.small{font-size:14px;fill:#5c6b82}.eyebrow{font-size:12px;font-weight:700;letter-spacing:1.6px}.edge{fill:none;stroke:#8191ad;stroke-width:2;marker-end:url(#arrow)}
+</style>
+<rect width="1200" height="1140" rx="20" fill="#ffffff"/>
+<rect width="1200" height="112" rx="20" fill="#ffffff"/><path d="M0 80h1200v32H0Z" fill="#ffffff"/>
+<text x="40" y="45" style="font-family:Georgia,serif;font-size:30px;font-weight:700;fill:#17243c">Eventmaxxer: campaign architecture</text>
+<text x="40" y="77" style="font-size:17px;fill:#526786">Agent-generated assessments → deterministic ranking → human attendance decisions</text>
+<path d="M40 108H1160" stroke="#d8e1f0"/><rect x="40" y="138" width="1120" height="786" rx="20" fill="white" stroke="#d8e1f0"/>
+<text x="64" y="174" class="eyebrow" style="fill:#42567c">CAMPAIGN</text><text x="205" y="174" class="body">A goal + an event scope + its own tracker and recommendations</text>
+
+<rect x="56" y="198" width="1088" height="136" rx="14" fill="#edf4ff"/><rect x="56" y="214" width="4" height="104" rx="2" fill="#2563eb"/><text x="76" y="229" class="eyebrow" style="fill:#2563eb">01 / INTENT</text><text x="76" y="257" class="heading" style="fill:#2563eb">Set direction</text><text x="76" y="282" class="small">Who matters?</text>
+<rect x="248" y="210" width="422" height="112" rx="12" fill="white" stroke="#2563eb" stroke-opacity=".25"/>
+<rect x="264" y="226" width="36" height="36" rx="10" fill="#e5efff"/><use href="#target" x="271" y="233" width="22" height="22" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="312" y="232" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#2563eb">HUMAN INPUT</text>
+<text x="312" y="254" style="font-size:19px;font-weight:700">Goal + scope</text>
+<text x="264" y="286" class="body" style="font-size:16px">People to meet · desired outcome</text>
+<text x="264" y="309" class="body" style="font-size:16px">Dates · location · capacity · permission</text>
+<rect x="690" y="210" width="438" height="112" rx="12" fill="white" stroke="#2563eb" stroke-opacity=".25"/>
+<rect x="706" y="226" width="36" height="36" rx="10" fill="#e5efff"/><use href="#chat" x="713" y="233" width="22" height="22" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="754" y="232" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#2563eb">AGENT ↔ HUMAN</text>
+<text x="754" y="254" style="font-size:19px;font-weight:700">Ask + learn</text>
+<text x="706" y="286" class="body" style="font-size:16px">Fill missing facts; save confirmed answers</text>
+<text x="706" y="309" class="body" style="font-size:16px">Re-review eligibility with the updated profile</text>
+<rect x="56" y="350" width="1088" height="258" rx="14" fill="#eaf9f5"/><rect x="56" y="366" width="4" height="226" rx="2" fill="#008574"/><text x="76" y="381" class="eyebrow" style="fill:#008574">02 / EXECUTION</text><text x="76" y="409" class="heading" style="fill:#008574">Build options</text><text x="76" y="434" class="small">Broad funnel</text>
+<rect x="248" y="366" width="202" height="96" rx="12" fill="white" stroke="#008574" stroke-opacity=".25"/>
+<rect x="264" y="382" width="36" height="36" rx="10" fill="#dcf5ee"/><use href="#search" x="271" y="389" width="22" height="22" fill="none" stroke="#008574" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="312" y="388" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#008574">AGENT + BROWSER</text>
+<text x="312" y="410" style="font-size:19px;font-weight:700">Discover</text>
+<text x="264" y="442" class="body" style="font-size:16px">Search + scan</text>
+<rect x="474" y="366" width="202" height="96" rx="12" fill="white" stroke="#008574" stroke-opacity=".25"/>
+<rect x="490" y="382" width="36" height="36" rx="10" fill="#dcf5ee"/><use href="#filter" x="497" y="389" width="22" height="22" fill="none" stroke="#008574" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="538" y="388" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#008574">AGENT JUDGMENT</text>
+<text x="538" y="410" style="font-size:19px;font-weight:700">Qualify</text>
+<text x="490" y="442" class="body" style="font-size:16px">Fit + eligibility</text>
+<rect x="700" y="366" width="202" height="96" rx="12" fill="white" stroke="#008574" stroke-opacity=".25"/>
+<rect x="716" y="382" width="36" height="36" rx="10" fill="#dcf5ee"/><use href="#send" x="723" y="389" width="22" height="22" fill="none" stroke="#008574" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="764" y="388" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#008574">AGENT + BROWSER</text>
+<text x="764" y="410" style="font-size:19px;font-weight:700">Apply</text>
+<text x="716" y="442" class="body" style="font-size:16px">Fill + submit</text>
+<rect x="926" y="366" width="202" height="96" rx="12" fill="white" stroke="#008574" stroke-opacity=".25"/>
+<rect x="942" y="382" width="36" height="36" rx="10" fill="#dcf5ee"/><use href="#check" x="949" y="389" width="22" height="22" fill="none" stroke="#008574" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="990" y="388" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#008574">AGENT + BROWSER</text>
+<text x="990" y="410" style="font-size:19px;font-weight:700">Verify</text>
+<text x="942" y="442" class="body" style="font-size:16px">Actual outcome</text>
+<path class="edge" d="M450 414h24"/>
+<path class="edge" d="M676 414h24"/>
+<path class="edge" d="M902 414h24"/>
+<rect x="248" y="498" width="880" height="94" rx="12" fill="white" stroke="#008574" stroke-opacity=".25"/>
+<rect x="264" y="514" width="36" height="36" rx="10" fill="#dcf5ee"/><use href="#table" x="271" y="521" width="22" height="22" fill="none" stroke="#008574" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="312" y="520" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#008574">PERSISTENT DATA</text>
+<text x="312" y="542" style="font-size:19px;font-weight:700">Campaign tracker</text>
+<text x="264" y="574" class="body" style="font-size:16px">Events + registration status   ·   Your decisions + attendance notes</text>
+<text x="1108" y="535" text-anchor="end" class="eyebrow" style="fill:#008574">SOURCE OF TRUTH</text>
+<path class="edge" d="M1027 462v36"/>
+<path class="edge" d="M349 322v44"/>
+<rect x="56" y="624" width="1088" height="140" rx="14" fill="#f3edff"/><rect x="56" y="640" width="4" height="108" rx="2" fill="#7543d6"/><text x="76" y="655" class="eyebrow" style="fill:#7543d6">03 / RANKING</text><text x="76" y="683" class="heading" style="fill:#7543d6">Prioritize</text><text x="76" y="708" class="small">Limited time</text>
+<rect x="248" y="638" width="282" height="112" rx="12" fill="white" stroke="#7543d6" stroke-opacity=".25"/>
+<rect x="264" y="654" width="36" height="36" rx="10" fill="#eee3ff"/><use href="#spark" x="271" y="661" width="22" height="22" fill="none" stroke="#7543d6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="312" y="660" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#7543d6">AGENT JUDGMENT</text>
+<text x="312" y="682" style="font-size:17px;font-weight:700">Assess fit</text>
+<text x="264" y="714" class="body" style="font-size:14px">Research audience + interaction</text>
+<text x="264" y="737" class="body" style="font-size:14px">Record evidence + confidence</text>
+<rect x="550" y="638" width="282" height="112" rx="12" fill="white" stroke="#7543d6" stroke-opacity=".25"/>
+<rect x="566" y="654" width="36" height="36" rx="10" fill="#eee3ff"/><use href="#filter" x="573" y="661" width="22" height="22" fill="none" stroke="#7543d6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="614" y="660" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#7543d6">DETERMINISTIC RULES</text>
+<text x="614" y="682" style="font-size:17px;font-weight:700">Rank + filter</text>
+<text x="566" y="714" class="body" style="font-size:14px">Weighted score · admission</text>
+<text x="566" y="737" class="body" style="font-size:14px">Capacity cap · known overlaps</text>
+<rect x="852" y="638" width="276" height="112" rx="12" fill="white" stroke="#7543d6" stroke-opacity=".25"/>
+<rect x="868" y="654" width="36" height="36" rx="10" fill="#eee3ff"/><use href="#list" x="875" y="661" width="22" height="22" fill="none" stroke="#7543d6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="916" y="660" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#7543d6">RECOMMENDATION OUTPUT</text>
+<text x="916" y="682" style="font-size:17px;font-weight:700">Shortlist</text>
+<text x="868" y="714" class="body" style="font-size:14px">Admitted options + target people</text>
+<text x="868" y="737" class="body" style="font-size:14px">Conditional backups kept apart</text>
+<path class="edge" d="M389 592v46"/>
+<path class="edge" d="M530 694h20"/>
+<path class="edge" d="M832 694h20"/>
+<rect x="56" y="780" width="1088" height="124" rx="14" fill="#fff6e5"/><rect x="56" y="796" width="4" height="92" rx="2" fill="#b96a08"/><text x="76" y="811" class="eyebrow" style="fill:#b96a08">04 / HUMAN</text><text x="76" y="839" class="heading" style="fill:#b96a08">Choose + learn</text><text x="76" y="864" class="small">You stay in control</text>
+<rect x="248" y="794" width="880" height="96" rx="12" fill="white" stroke="#b96a08" stroke-opacity=".25"/>
+<rect x="264" y="810" width="36" height="36" rx="10" fill="#ffedc8"/><use href="#people" x="271" y="817" width="22" height="22" fill="none" stroke="#b96a08" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="312" y="816" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#b96a08">HUMAN DECISION + FEEDBACK</text>
+<text x="312" y="838" style="font-size:19px;font-weight:700">Decide, attend and give feedback</text>
+<text x="264" y="870" class="body" style="font-size:16px">Useful conversations + follow-ups inform the next recommendation</text>
+<path class="edge" d="M918 750v44"/>
+<path class="edge" d="M248 856h-18V548h18" stroke-dasharray="5 5"/><text x="219" y="725" transform="rotate(-90 219 725)" class="small" style="fill:#7543d6">Feedback to tracker</text>
+<text x="56" y="955" class="eyebrow" style="fill:#526786">SHARED FOUNDATION / SUPPORTS EVERY CAMPAIGN</text>
+<rect x="56" y="974" width="534" height="112" rx="12" fill="white" stroke="#526786" stroke-opacity=".25"/>
+<rect x="72" y="990" width="36" height="36" rx="10" fill="#e8eef7"/><use href="#lock" x="79" y="997" width="22" height="22" fill="none" stroke="#526786" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="120" y="996" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#526786">LOCAL STORAGE</text>
+<text x="120" y="1018" style="font-size:19px;font-weight:700">Reusable profile + private state</text>
+<text x="72" y="1050" class="body" style="font-size:16px">Verified facts · event keys · reservations</text>
+<text x="72" y="1073" class="body" style="font-size:16px">Campaign outcomes + assessments stay private</text>
+<rect x="610" y="974" width="534" height="112" rx="12" fill="white" stroke="#526786" stroke-opacity=".25"/>
+<rect x="626" y="990" width="36" height="36" rx="10" fill="#e8eef7"/><use href="#clock" x="633" y="997" width="22" height="22" fill="none" stroke="#526786" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="674" y="996" style="font-size:10px;font-weight:700;letter-spacing:.8px;fill:#526786">DETERMINISTIC SOFTWARE</text>
+<text x="674" y="1018" style="font-size:19px;font-weight:700">Cooldown + recovery</text>
+<text x="626" y="1050" class="body" style="font-size:16px">Save retry deadlines; resume when due</text>
+<text x="626" y="1073" class="body" style="font-size:16px">One scheduler per account · preserve campaign state</text>
+<text x="600" y="1118" text-anchor="middle" class="small">Current implementation: agent judgments + heuristic rules; no trained ML model. Feedback informs later assessments.</text></svg>

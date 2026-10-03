@@ -61,7 +61,12 @@ Each **campaign** has a goal and scope, its own tracker, and recommendations bui
 that tracker. The agent builds a broad set of event options, then helps you choose where
 to spend your time. Local helpers preserve state and coordinate retries.
 
-![Eventmaxxer architecture: each campaign defines a goal and scope, builds event options into its tracker, and uses evidence-backed recommendations to create an attendance shortlist. User decisions and feedback refine recommendations; shared private state and cooldown gates support execution.](assets/architecture.svg)
+![Eventmaxxer layered architecture: human campaign goals guide agent discovery, qualification, application and verification into a tracker. Agent assessments feed deterministic ranking rules and an attendance shortlist. Human feedback returns to the tracker. Private storage and recovery software support all campaigns.](assets/architecture.svg)
+
+The diagram separates **agent judgments**, **deterministic software**, **stored data** and
+**human decisions**. Recommendations combine agent-researched assessments with heuristic
+scoring and filtering; there is no trained ML ranking model. Attendance feedback informs
+future assessments rather than automatically training a model.
 
 - **Ask when needed:** missing answers return to you. The agent saves confirmed reusable facts
   to your profile and re-reviews the event; event-specific answers stay with that event.
