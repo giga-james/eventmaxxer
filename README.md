@@ -106,4 +106,8 @@ python3 -m unittest discover -s tests -v
 
 Tests use temporary state and fake agents, with no live applications.
 
+## Contributing
+
+See the [contributing guide](CONTRIBUTING.md) for setup, project rules and pull requests.
+
 Inspired by [Continual Outreach](https://github.com/giga-james/continual-outreach).
