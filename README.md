@@ -42,7 +42,7 @@ uses Python 3.9+ on macOS/Linux; Google Sheets needs a connector.
 An event calendar full of options:
 
 <p align="center">
-  <img src="assets/eventmaxxer-outcome.png" width="100%" alt="Event dashboard welcoming James and showing 564 upcoming events.">
+  <img src="assets/eventmaxxer-outcome.png" width="100%" alt="Event dashboard welcoming James and showing 621 upcoming events.">
 </p>
 
 ## Core features
