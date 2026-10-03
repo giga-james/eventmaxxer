@@ -9,11 +9,15 @@ Use --json @/absolute/private/input.json for longer data; never interpolate untr
 form text into shell commands. Every mutation is transactional. A new init never overwrites
 an existing campaign.
 
-    python3 scripts/state.py init --campaign conference --account primary --json '{"sources":["https://events.example.org"],"discovery_complete":false,"review_during_cooldown":false,"preferences":{"free_only":true,"skip_hackathons":true,"allow_overlaps":true,"product_marketing":false}}'
+    python3 scripts/state.py init --campaign conference --account primary --json '{"sources":[],"discovery_complete":false,"review_during_cooldown":false,"preferences":{"goal":"Meet people building community projects","location":"San Francisco","date_scope":"October 2026","free_only":true,"allow_overlaps":true,"product_marketing":false}}'
     python3 scripts/state.py authorize --campaign conference --json '{"evidence":"User authorized free eligible networking applications on YYYY-MM-DD; no purchases or new accounts."}'
     python3 scripts/state.py fact --json '{"name":"job_title","value":"Founder","source":"User on YYYY-MM-DD","share":"routine"}'
     python3 scripts/state.py profile
     python3 scripts/state.py add --campaign conference --url https://events.example.org/one --json '{"title":"Founder Meetup","service":"events.example.org"}'
+
+An empty sources list starts goal-driven web discovery. Save discovered source URLs with
+configure, keeping the goal and constraints in preferences. Supplied websites can also
+be used as the initial sources. No event category is excluded by default.
 
 The add command returns the stable event ID. Save that ID and use it for later operations.
 Known tracking query keys are stripped; other query parameters are preserved. Use alias
@@ -51,7 +55,9 @@ Use list for all campaign records, pause to deactivate, authorize to resume with
 and finish after source coverage and unresolved/sync queues have been checked. Date metadata
 uses offset-aware ISO timestamps; exports select the user's requested timezone.
 
-Discovery checkpoints (private Markdown beside the database) hold source URLs, pagination
+Discovery checkpoints (private Markdown beside the database) hold the scoped search plan,
+queries and their coverage, discovered source URLs, pagination
 and filter cursor, observed counts, pending source questions and last verified source pass.
-Mark discovery_complete only after exhausting all selected sources. Reopen it when the
+Mark discovery_complete only after completing the scoped search plan and exhausting all
+selected sources; this does not mean the entire web has been searched. Reopen it when the
 user adds a new source or explicitly requests a fresh scan.

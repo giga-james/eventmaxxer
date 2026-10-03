@@ -1,11 +1,34 @@
 # Eventmaxxer
 
-**An agent distro that finds events, completes applications, and keeps your options organized.**
+<p align="center">
+  <a href="#architecture"><img src="https://img.shields.io/badge/Agent-Distro-6366f1" alt="Agent Distro"></a>
+  <a href="#start"><img src="https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&amp;logoColor=white" alt="Python 3.9+"></a>
+  <a href="#start"><img src="https://img.shields.io/badge/Runner-macOS%20%7C%20Linux-555555" alt="Runner: macOS or Linux"></a>
+  <a href="#three-core-features"><img src="https://img.shields.io/badge/Events-Any%20type-0d9488" alt="Events: any type"></a>
+  <a href="#start"><img src="https://img.shields.io/badge/Auto%20registration-Free%20events-2563eb" alt="Automatic registration: free events"></a>
+  <a href="#validation"><img src="https://img.shields.io/badge/Status-Experimental-f4a7c3" alt="Status: experimental"></a>
+</p>
+
+[Watch the Eventmaxxer demo](assets/eventmaxxer-header-10x.mp4)
+
+<p align="center"><sub>45 minutes of me afk sped up 10x</sub></p>
+
+**Give your agent an event goal. It searches the web, finds matching events, and applies in bulk.**
+
+Conferences, meetups, workshops, dinners, talks, hackathons, community gatherings, or
+any other event type: the goal determines what fits. Start with a goal, specific websites,
+or both. The agent discovers sources, extracts listings, reviews registration pages,
+and keeps applying to eligible events within your authorization.
 
 Open this repo in Codex, Claude Code, or another agent with computer-use tools and say:
 
-> Find events where I can meet founders, investors and potential customers. Apply to
-> eligible free events, skip hackathons, and keep a tracker sorted by day and time.
+> Search the web for events where I can learn about robotics in San Francisco next
+> month. Apply to all eligible free events and keep a tracker sorted by day and time.
+
+Or point it at a site:
+
+> Scan this community calendar and its linked event pages for workshops, talks, and
+> meetups this month. Register me for every eligible free event that fits my interests.
 
 Or, from another workspace, tell your agent to read this clone's **EVENTMAXXER.md**.
 The agent handles setup and asks only for missing information.
@@ -20,9 +43,11 @@ the event workflow and reliable local state. Inspired by
 1. **A maintained applicant profile.** Reuse verified professional facts, preserve their
    source and history, flag stale facts, and ask missing questions individually. Keep
    event-specific answers and consent separate from reusable facts.
-2. **Computer-use applications across event sites.** Review calendars and registration
-   pages using the current agent's browser tools. Check cost and eligibility, deduplicate
-   alternate links, complete forms and verify the actual result.
+2. **Goal-driven discovery and bulk applications across event sites.** Search the web
+   or scan supplied websites, extract matching listings, and follow registration links
+   using the current agent's supported tools. Check cost and eligibility, deduplicate
+   alternate links, complete forms and verify each result. Keep working through the
+   campaign rather than stopping after an arbitrary batch.
 3. **Wakeups after rate limits.** A tiny Python process checks local deadlines without
    calling a model or opening a browser. Once due, it invokes the configured agent for
    one real retry. Successful submissions resume continuous work; another limit saves a
@@ -51,12 +76,14 @@ Requires Python 3.9+ on macOS/Linux for the optional local runner; no third-part
 packages are needed. The agent runtime must provide an authenticated supported browser.
 Spreadsheet integration additionally requires a Sheets connector.
 
-No personal data ships in this repository. State defaults to
+The header video is supplied for this README; applicant profiles and campaign records
+stay outside the repository. State defaults to
 ~/.local/share/eventmaxxer/ and should be backed up privately. The same profile and
 account labels should be reused when switching agents or campaigns.
 
-New campaigns begin in draft mode. Tell the agent the sources, goals, constraints and
-permission to apply; it saves the configuration and profile. Existing authorization
+New campaigns begin in draft mode. Tell the agent your goal, constraints and permission
+to apply; sources are optional. It saves the configuration and profile and discovers
+relevant sources when needed. Existing authorization
 carries forward within scope.
 
 > Keep this running and resume after rate limits. Set up the scheduler for me.
@@ -68,10 +95,50 @@ installed merely by cloning this repo.
 
 ## Architecture
 
-User goals + profile → computer-use discovery → eligibility review → reserved application
-→ visible confirmation → verified tracker → next event.
+Eventmaxxer gives your existing agent a repeatable workflow. The agent supplies reasoning,
+web search, an authenticated computer-use browser and optional spreadsheet connectors.
+The repository supplies instructions and local Python helpers for durable state, exports
+and scheduled recovery. Browser interactions perform the applications; the helpers keep
+the campaign consistent between sessions.
 
-When limited: save deadline → close tabs → cheap local checks → one due retry.
+```mermaid
+flowchart TD
+    Goal["Your goal, constraints and authorization"] --> Agent["Agent + reusable applicant profile"]
+    Agent --> Discover["Search the web or scan supplied websites"]
+    Discover --> Review["Deduplicate and check fit, cost and eligibility"]
+    Review --> Reserve["Reserve application in private SQLite state"]
+    Reserve --> Browser["Complete and submit through the browser"]
+    Browser --> Confirm["Verify visible outcome"]
+    Confirm --> Tracker["Sync CSV or Google Sheets and verify"]
+    Tracker --> Review
+    Browser --> Limit["Rate limit: save deadline and close tabs"]
+    Limit --> Gate["Scheduled local check: no model while waiting"]
+    Gate --> Retry["When due: wake agent for one real retry"]
+    Retry --> Reserve
+```
+
+**Discovery follows the goal.** The agent turns your interests, dates and location into
+searches, scans relevant websites and follows registration links. It saves source coverage
+and event identities so another session can continue without starting over. Each event is
+reviewed against your preferences before it enters the application queue.
+
+**Private state coordinates the work.** `scripts/state.py` stores profile facts, event
+records, unanswered questions and submission outcomes in SQLite under
+`~/.local/share/eventmaxxer/`. Its gate checks authorization, unresolved submissions,
+tracker sync and service cooldowns before another application. Reservations and account-wide
+URL identities protect campaigns sharing that state home from duplicate submissions.
+
+**Each application closes the loop.** The agent fills one form at a time and records
+the visible result, keeping pending, waitlisted and admitted distinct. It exports verified
+outcomes through `scripts/export.py` or a Sheets connector and checks the tracker before
+continuing. Missing answers are saved for you; ambiguous submissions are reconciled before
+another attempt.
+
+**Scheduling resumes eligible work.** An optional scheduler calls `scripts/wake.py`.
+While the local gate says wait or idle, it makes no model, browser or network call. When
+work is actionable, the runner invokes the configured agent, serializes runs for that
+account and saves private logs. A desktop heartbeat can provide an alternative when
+scheduled CLI sessions lack browser access; that alternative does invoke the model.
 
 | File | Purpose |
 | --- | --- |
