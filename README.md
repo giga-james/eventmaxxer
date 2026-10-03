@@ -11,7 +11,7 @@
 
 https://github.com/user-attachments/assets/1c31d9b3-0cf7-4643-a9a0-9776463e8cca
 
-<p align="center"><sub>45 minutes of me afk sped up 10x</sub></p>
+<p align="center"><sub>left to go watch jojo's, but we keep eventmaxxing</sub></p>
 
 **Give your agent an event goal. It finds matching events and applies in bulk.**
 
@@ -39,7 +39,6 @@ An event calendar full of options:
 
 <p align="center">
   <img src="assets/eventmaxxer-outcome.png" width="100%" alt="Event dashboard welcoming James and showing 564 upcoming events.">
-  <br><sub>left to go watch jojo's, but we keep eventmaxxing</sub>
 </p>
 
 ## Three core features
