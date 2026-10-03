@@ -66,6 +66,9 @@ class Store:
         CREATE TABLE IF NOT EXISTS sync (
           campaign TEXT, event TEXT REFERENCES events(id), pending INTEGER NOT NULL DEFAULT 1,
           evidence TEXT, PRIMARY KEY(campaign,event));
+        CREATE TABLE IF NOT EXISTS assessments (
+          campaign TEXT REFERENCES campaigns(id), event TEXT REFERENCES events(id),
+          data TEXT NOT NULL, PRIMARY KEY(campaign,event));
         ''')
 
     @contextmanager

@@ -52,19 +52,26 @@ An event calendar full of options:
 | 👤 **Reusable profile** | Saves verified facts so you do not repeat the same answers. |
 | 🌐 **Discover and apply** | Searches websites, checks fit and eligibility, and applies to matching free events. |
 | 📊 **Review and decide later** | Keeps Google Sheets or a CSV sorted by date, with event details, registration status, your attendance decisions and notes. |
+| 🎯 **Prioritize attendance** | Builds an evidence-backed shortlist around the people you want to meet, with confidence, conversation plans and known overlaps. |
 | ⏱ **Resume automatically** | Saves cooldowns and wakes the agent when it can retry. |
 
 ## Architecture
 
-Your agent operates the browser. Local helpers preserve state and coordinate retries.
+Each **campaign** has a goal and scope, its own tracker, and recommendations built on
+that tracker. The agent builds a broad set of event options, then helps you choose where
+to spend your time. Local helpers preserve state and coordinate retries.
 
-![Eventmaxxer architecture: missing facts return to the user, confirmed answers update the profile, and the agent reviews events again before applying and tracking results in a spreadsheet. Local helpers preserve state and manage cooldowns.](assets/architecture.svg)
+![Eventmaxxer architecture: each campaign defines a goal and scope, builds event options into its tracker, and uses evidence-backed recommendations to create an attendance shortlist. User decisions and feedback refine recommendations; shared private state and cooldown gates support execution.](assets/architecture.svg)
 
 - **Ask when needed:** missing answers return to you. The agent saves confirmed reusable facts
   to your profile and re-reviews the event; event-specific answers stay with that event.
 - **Apply once:** deduplicate events, reserve each submission, and reconcile uncertain results.
 - **Keep options reviewable:** sync verified results to the spreadsheet, preserving your
   decisions and notes. Pending, waitlisted and admitted stay distinct.
+- **Recommend within the campaign:** rank tracker options against the people you want to
+  meet, explain the evidence and uncertainties, and build a shortlist within your capacity.
+- **Learn from attendance:** use your decisions and feedback about useful conversations
+  to improve later recommendations.
 - **Resume cheaply:** the optional local runner waits without model calls. A desktop heartbeat
   is an alternative when CLI browser access is unavailable and does invoke the model.
 
@@ -75,6 +82,17 @@ Sites may still require missing answers, login or manual steps.
 [Agent workflow](.agents/skills/eventmaxxer/SKILL.md) ·
 [State & commands](docs/state.md) · [Scheduling](docs/scheduling.md) ·
 [Tracking & exports](docs/tracking.md)
+
+## Choose what to attend
+
+Ask your agent to prioritize the tracker around the people you need to meet and the
+outcome you want. It assesses audience fit and opportunities for conversation, explains
+each recommendation, and keeps unconfirmed admission separate. Tell it how many events
+you have capacity for. Your decisions and notes remain yours.
+
+See [Attendance recommendations](docs/recommendations.md). The local helper ranks
+agent-researched assessments; it does not infer attendees from event titles or fetch
+guest lists. Google Sheets updates use the agent's supported connector.
 
 ## Validation
 

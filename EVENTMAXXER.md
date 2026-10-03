@@ -15,6 +15,9 @@ in force. Do not assume its codebase describes the applicant or read it without 
 Load .agents/skills/eventmaxxer/SKILL.md from this distro. All paths in that skill are
 relative to the distro root unless stated otherwise. No native skill discovery is needed.
 
+For attendance prioritization or networking recommendations, read docs/recommendations.md.
+This is a separate workflow over existing tracker options; it does not start applications.
+
 Continue the campaign selected by the user, scheduler or checkpoint. Reuse its absolute
 state home and campaign ID; switching agents must not create duplicate state. For a new
 campaign ask only missing essentials: attendance goals, applicant/profile,

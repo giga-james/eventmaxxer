@@ -6,6 +6,12 @@ inferred networking fit, verification evidence, user decision and user attendanc
 Unknown end/venue stays unknown. Multi-day end dates remain explicit. Do not imply named
 investors or customers are guaranteed attendees.
 
+For attendance prioritization, use [recommendations.md](recommendations.md). Recommendation
+and registration status are separate fields. CSV exports opt into recommendation columns
+with `--recommendations --limit 3`; later exports retain and refresh those columns.
+An original-schema CSV upgrades without losing decisions or notes. Other schemas still
+require reconciliation rather than overwriting.
+
 ## CSV
 
 Configure tracker as {"kind":"csv","path":"/absolute/private/applications.csv"}.
