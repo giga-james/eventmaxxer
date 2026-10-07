@@ -422,6 +422,14 @@ class Workflow(unittest.TestCase):
         with path.open(newline='') as f: row = next(csv.DictReader(f))
         self.assertEqual(row['attendance_notes'].count('Earlier decision: Maybe'), 1)
         self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+        # An explicit chat answer replaces custom wording in the cell.
+        self.write_decision(path, eid, 'Maybe later')
+        self.s.rsvp(eid, 'attending', 'User in chat: yes')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['your_decision'], 'Attend')
+        self.assertIn('Earlier decision: Maybe later', row['attendance_notes'])
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
 
     def test_admission_after_start_needs_no_rsvp(self):
         late = self.s.add('one', 'https://partiful.com/e/late', {'title':'late', 'service':'partiful.com', 'start':'1970-01-01T00:00:10+00:00'})

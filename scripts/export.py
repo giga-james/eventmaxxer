@@ -51,15 +51,11 @@ def ingest_rsvps(s, campaign, previous, destination):
 
 
 def shown_decision(event, cell):
-    """Show the recorded RSVP, keeping the user's own wording when it agrees."""
+    """Show the recorded RSVP, keeping the user's own wording only when it states the same answer."""
     stated = intent(cell)
-    if event['rsvp'] == 'needs_rsvp' and stated is None:
-        return 'RSVP needed'  # Unrecognized wording is not an answer; keep asking.
-    if event['rsvp'] and (cell in ('', 'Undecided', 'RSVP needed')
-                          or (stated and stated != rsvp_intent(event))
-                          or (rsvp_intent(event) == 'not_attending' and stated is None)):
-        return 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
-    return cell
+    if not event['rsvp'] or (stated is not None and stated == rsvp_intent(event)):
+        return cell
+    return 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
 
 
 def export(s, campaign, destination, timezone='America/Los_Angeles', recommendations=False, limit=3):
@@ -110,9 +106,10 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
         if event['id'] in previous:
             row['attendance_notes'] = previous[event['id']]['attendance_notes']
             earlier = previous[event['id']]['your_decision']
-            if (decisions[event['id']] == 'RSVP needed' and earlier not in ('', 'Undecided', 'RSVP needed')
+            if (decisions[event['id']] != earlier and intent(earlier) is None
+                    and earlier not in ('', 'Undecided', 'RSVP needed')
                     and 'Earlier decision: ' + earlier not in row['attendance_notes']):
-                # Keep the user's own wording when the decision cell is reused to ask for an RSVP.
+                # Keep the user's own wording when the decision cell shows the recorded RSVP instead.
                 row['attendance_notes'] = '\n'.join(filter(None, [row['attendance_notes'], 'Earlier decision: ' + earlier]))
         row['your_decision'] = decisions[event['id']]
         if recommendations:
