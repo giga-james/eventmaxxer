@@ -99,7 +99,7 @@ class Store:
           data TEXT NOT NULL, PRIMARY KEY(campaign,event));
         CREATE TABLE IF NOT EXISTS tracker_cells (
           path TEXT, event TEXT REFERENCES events(id), decision TEXT NOT NULL, pending TEXT,
-          PRIMARY KEY(path,event));
+          pending_file TEXT, PRIMARY KEY(path,event));
         ''')
         if 'rsvp' not in {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}:
             with self.transaction():

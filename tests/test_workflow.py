@@ -466,6 +466,25 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
         self.assertEqual(self.decision(path, eid), 'Attend')
 
+    def test_checkpoint_from_write_that_never_landed_is_discarded(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, eid), 'Attend')
+        # A hard kill after the checkpoint but before the replace leaves its temporary file behind.
+        orphan = self.home / 'tmp-orphan'
+        orphan.write_text('partial')
+        self.s.db.execute('UPDATE tracker_cells SET pending=?,pending_file=? WHERE event=?', ('Not attending', str(orphan), eid))
+        self.s.db.commit()
+        # The user then deliberately types that same value into the still-unchanged CSV.
+        self.write_decision(path, eid, 'Not attending')
+        export(self.s, 'one', path)
+        self.assertFalse(orphan.exists())
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

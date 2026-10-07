@@ -29,6 +29,7 @@ def rsvp_intent(event):
 def ingest_rsvps(s, campaign, previous, destination):
     """Treat a decision the user changed in the tracker as their RSVP; a decline queues a release."""
     path = str(destination.resolve())
+    settle_checkpoint(s, path)
     # Values the exporter wrote, including one whose write may have been interrupted.
     known = {}
     for r in s.db.execute('SELECT event,decision,pending FROM tracker_cells WHERE path=?', (path,)):
@@ -48,6 +49,17 @@ def ingest_rsvps(s, campaign, previous, destination):
         # Mark this user edit as seen so it is never replayed over a later chat answer.
         with s.transaction():
             s.db.execute('INSERT OR REPLACE INTO tracker_cells(path,event,decision) VALUES(?,?,?)', (path, event['id'], cell))
+
+
+def settle_checkpoint(s, path):
+    """Resolve a write interrupted by a crash: its temporary file survives only if the replace never ran."""
+    with s.transaction():
+        for f, in s.db.execute('SELECT DISTINCT pending_file FROM tracker_cells WHERE path=? AND pending_file IS NOT NULL', (path,)).fetchall():
+            if os.path.exists(f):
+                s.db.execute('UPDATE tracker_cells SET pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
+                os.unlink(f)
+            else:
+                s.db.execute('UPDATE tracker_cells SET decision=pending,pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
 
 
 def shown_decision(event, cell):
@@ -126,27 +138,39 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
     rows.sort(key=lambda r: (r['date'] or '9999', r['start'], r['event_key']))
     path = str(destination.resolve())
     written = [(path, r['event_key'], r['your_decision']) for r in rows if r['event_key'] in keys]
-    # Checkpoint before the file changes, so an interrupted write is still recognized as ours.
-    with s.transaction():
-        for p, eid, decision in written:
-            s.db.execute('''INSERT INTO tracker_cells(path,event,decision,pending) VALUES(?,?,?,?)
-                ON CONFLICT(path,event) DO UPDATE SET pending=excluded.pending''', (p, eid, decision, decision))
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=destination.parent)
+    checkpointed = False
     try:
         with os.fdopen(fd, 'w', newline='') as f:
             writer = csv.DictWriter(f, fields)
             writer.writeheader()
             writer.writerows(rows)
+            f.flush()
+            os.fsync(f.fileno())
+        # Checkpoint before the file changes, tied to the temporary file: if a crash leaves that
+        # file behind, the replace never ran; if it is gone, these values reached the tracker.
+        with s.transaction():
+            for p, eid, decision in written:
+                s.db.execute('''INSERT INTO tracker_cells(path,event,decision,pending,pending_file) VALUES(?,?,?,?,?)
+                    ON CONFLICT(path,event) DO UPDATE SET pending=excluded.pending,pending_file=excluded.pending_file''',
+                    (p, eid, decision, decision, tmp))
+        checkpointed = True
         os.replace(tmp, destination)
-    finally:
-        if os.path.exists(tmp): os.unlink(tmp)
+    except BaseException:
+        if os.path.exists(tmp):
+            if checkpointed:
+                # The replace did not run: drop the checkpoint first, keeping the file as evidence if that fails.
+                with s.transaction():
+                    s.db.execute('UPDATE tracker_cells SET pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, tmp))
+            os.unlink(tmp)
+        raise
     with destination.open(newline='') as f:
         actual = list(csv.DictReader(f))
     if actual != rows:
         raise ValueError('Export read-back mismatch')
     with s.transaction():
-        s.db.executemany('UPDATE tracker_cells SET decision=?,pending=NULL WHERE path=? AND event=?',
+        s.db.executemany('UPDATE tracker_cells SET decision=?,pending=NULL,pending_file=NULL WHERE path=? AND event=?',
                          [(decision, p, eid) for p, eid, decision in written])
     tracker = json.loads(s.campaign(campaign)['config']).get('tracker', {})
     if tracker.get('kind') == 'csv' and tracker.get('path') and Path(tracker['path']).expanduser().resolve() == destination.resolve():

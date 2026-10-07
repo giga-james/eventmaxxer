@@ -71,10 +71,11 @@ def rank(store, campaign, limit=3, now=None, decisions=None):
             start = end = None
         item['_start'], item['_end'] = start, end
         decision = (decisions or {}).get(event['id'], event['decision']).strip().lower()
-        if decision in DECLINE_WORDS:
-            item.update(recommendation='Skipped by you', reason='Preserved attendance decision')
-        elif event['status'] in ('declined', 'closed', 'skipped', 'cancelled'):
+        # Terminal registration states first: a completed cancellation is no longer an option.
+        if event['status'] in ('declined', 'closed', 'skipped', 'cancelled'):
             item.update(recommendation='Unavailable', reason='Registration is ' + event['status'])
+        elif decision in DECLINE_WORDS:
+            item.update(recommendation='Skipped by you', reason='Preserved attendance decision')
         elif start and (end or start) <= now:
             item.update(recommendation='Past', reason='Event has ended or its known start has passed')
         elif a and goal and a['goal'] == goal:

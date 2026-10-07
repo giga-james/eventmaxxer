@@ -134,6 +134,13 @@ class Recommendations(unittest.TestCase):
         self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
         self.assertEqual((row['your_decision'], row['recommendation']), ('No', 'Skipped by you'))
 
+    def test_completed_cancellation_is_unavailable(self):
+        eid = self.event('a')
+        self.s.rsvp(eid, 'not_attending', 'User: no')
+        self.assertEqual(rank(self.s, 'one', now=self.now)[0]['recommendation'], 'Skipped by you')
+        self.s.cancelled(eid, 'Visible cancellation')
+        self.assertEqual(rank(self.s, 'one', now=self.now)[0]['recommendation'], 'Unavailable')
+
     def test_assessment_requires_goal_and_evidence(self):
         eid = self.s.add('one', 'https://example.org/new', {})
         with self.assertRaises(ValueError):
