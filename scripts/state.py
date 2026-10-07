@@ -195,22 +195,18 @@ class Store:
     def gate(self, campaign, now=None):
         now = time.time() if now is None else now
         c = self.campaign(campaign)
-        if c['complete'] or not c['active']:
-            return {'action': 'idle', 'reason': 'complete' if c['complete'] else 'draft_or_paused'}
         account = c['account']
+        if c['complete']:
+            # A finished campaign still follows through on RSVPs for registrations it holds.
+            return self.rsvp_work(account, now, campaign) or {'action': 'idle', 'reason': 'complete'}
+        if not c['active']:
+            return {'action': 'idle', 'reason': 'draft_or_paused'}
         unknown = self.db.execute("SELECT id FROM events WHERE account=? AND status='submitting' LIMIT 1", (account,)).fetchone()
         if unknown:
             return {'action': 'reconcile', 'event': unknown['id']}
-        pending = self.db.execute('SELECT sync.event,sync.campaign FROM sync JOIN campaigns c ON c.id=sync.campaign WHERE c.account=? AND sync.pending=1 LIMIT 1', (account,)).fetchone()
-        if pending:
-            return {'action': 'sync', 'event': pending['event'], 'campaign': pending['campaign']}
-        # Release spots the user will not use before taking any new ones.
-        release = self.db.execute("SELECT id FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid LIMIT 1", (account,)).fetchone()
-        if release:
-            return {'action': 'cancel', 'event': release['id'], 'reason': 'not_attending'}
-        # No answer by the deadline means the user is not planning to attend.
-        for eid, _ in self.deadline_releases(account, now):
-            return {'action': 'cancel', 'event': eid, 'reason': 'rsvp_deadline'}
+        work = self.rsvp_work(account, now)
+        if work:
+            return work
         prefs = json.loads(c['config']).get('preferences', {})
         unanswered = self.unanswered_rsvps(account, now)
         if len(unanswered) >= prefs.get('max_unanswered_rsvps', RSVP_LIMIT):
@@ -278,6 +274,22 @@ class Store:
                     self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE id=? AND rsvp IS NULL", (eid,))
                 self._resync(eid)
 
+    def rsvp_work(self, account, now, campaign=None):
+        """Tracker sync and RSVP follow-through, account-wide or for one finished campaign."""
+        scope = None if campaign is None else {r['event'] for r in self.db.execute('SELECT event FROM members WHERE campaign=?', (campaign,))}
+        for r in self.db.execute('SELECT sync.event,sync.campaign FROM sync JOIN campaigns c ON c.id=sync.campaign WHERE c.account=? AND sync.pending=1 ORDER BY sync.rowid', (account,)):
+            if campaign is None or r['campaign'] == campaign:
+                return {'action': 'sync', 'event': r['event'], 'campaign': r['campaign']}
+        # Release spots the user will not use before taking any new ones.
+        for r in self.db.execute("SELECT id FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid", (account,)):
+            if scope is None or r['id'] in scope:
+                return {'action': 'cancel', 'event': r['id'], 'reason': 'not_attending'}
+        # The deadline only prompts a live tracker check; cancelling still needs a not_attending RSVP.
+        for eid, _ in self.deadline_releases(account, now):
+            if scope is None or eid in scope:
+                return {'action': 'rsvp_deadline', 'event': eid}
+        return None
+
     def unanswered_rsvps(self, account, now):
         """Admitted upcoming events whose attendance the user has not confirmed."""
         out = []
@@ -316,16 +328,14 @@ class Store:
             self.db.execute('UPDATE events SET rsvp=?,decision=?,notes=? WHERE id=?', (rsvp, decision, notes, eid))
             self._resync(eid)
 
-    def cancelled(self, eid, evidence, now=None):
+    def cancelled(self, eid, evidence):
         """Record an observed cancellation of a registration the user will not attend."""
-        now = time.time() if now is None else now
         if not evidence.strip():
             raise ValueError('Visible cancellation evidence required')
         with self.transaction():
             e = self.event(eid)
-            due = e['rsvp'] == 'needs_rsvp' and any(i == eid for i, _ in self.deadline_releases(e['account'], now))
-            if e['rsvp'] != 'cancel_pending' and not due:
-                raise ValueError('Cancel only after a not_attending RSVP or an expired RSVP deadline')
+            if e['rsvp'] != 'cancel_pending':
+                raise ValueError('Cancel only after a recorded not_attending RSVP')
             self.db.execute("UPDATE events SET status='cancelled',rsvp='cancelled',decision=?,evidence=? WHERE id=?",
                             (DECLINE_DECISION, evidence, eid))
             self._resync(eid)

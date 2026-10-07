@@ -183,13 +183,13 @@ class Workflow(unittest.TestCase):
     def test_not_attending_automatically_cancels_before_new_applications(self):
         eid = self.admit(start='2033-05-18T03:33:20+00:00')
         fresh = self.ready('fresh')
-        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Cancelled', now=0)
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Cancelled')
         self.s.rsvp(eid, 'not_attending', 'User on 2026-10-07: cannot make it')
         self.s.ack('one', eid, 'Read back')
         self.assertEqual(self.s.gate('one', now=0), {'action':'cancel','event':eid,'reason':'not_attending'})
         with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
         with self.assertRaises(ValueError): self.s.finish('one')
-        self.s.cancelled(eid, 'Visible: registration cancelled', now=0)
+        self.s.cancelled(eid, 'Visible: registration cancelled')
         e = self.s.event(eid)
         self.assertEqual((e['status'], e['rsvp'], e['decision']), ('cancelled', 'cancelled', 'Not attending'))
         self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
@@ -203,13 +203,46 @@ class Workflow(unittest.TestCase):
         start = 100_000
         eid = self.admit(start='1970-01-02T03:46:40+00:00')
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
-        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'cancel','event':eid,'reason':'rsvp_deadline'})
-        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Too early', now=start - 86_401)
-        prefs = {'rsvp_deadline_hours': 48}
-        self.s.configure('one', {'preferences': prefs})
-        self.assertEqual(self.s.gate('one', now=start - 86_401)['reason'], 'rsvp_deadline')
-        self.s.cancelled(eid, 'Visible cancellation', now=start - 86_401)
+        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'rsvp_deadline','event':eid})
+        # The deadline alone never authorizes a release; the agent must check the live tracker first.
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Deadline passed')
+        self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 48}})
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'rsvp_deadline')
+        self.s.rsvp(eid, 'not_attending', 'RSVP deadline passed; live tracker read shows no answer')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'cancel')
+        self.s.cancelled(eid, 'Visible cancellation')
         self.assertEqual(self.s.event(eid)['status'], 'cancelled')
+
+    def test_deadline_check_honors_a_tracker_attend(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Attend')
+        self.assertEqual(self.s.gate('one', now=100_000 - 86_400)['action'], 'rsvp_deadline')
+        export(self.s, 'one', path)  # The live tracker refresh the gate asks for.
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=100_000 - 86_400)['action'], 'idle')
+
+    def test_finished_campaign_follows_through_on_rsvps(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        self.s.ack('one', eid, 'Read back')
+        self.s.finish('one')
+        # Simulate a pre-RSVP database whose campaign was already finished.
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.gate('one', now=0), {'action':'sync','event':eid,'campaign':'one'})
+        self.s.ack('one', eid, 'Read back')
+        self.s.rsvp(eid, 'not_attending', 'User: cannot go')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+        self.s.cancelled(eid, 'Visible cancellation')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'idle','reason':'complete'})
 
     def test_later_admission_starts_rsvp_and_pending_can_be_withdrawn(self):
         eid = self.admit(outcome='pending', start='2033-05-18T03:33:20+00:00')
@@ -221,7 +254,7 @@ class Workflow(unittest.TestCase):
         self.s.ack('one', eid, 'Read back')
         other = self.admit('two', outcome='waitlisted', start='2033-05-18T03:33:20+00:00')
         self.s.rsvp(other, 'not_attending', 'User: withdraw')
-        self.s.cancelled(other, 'Left waitlist', now=0)
+        self.s.cancelled(other, 'Left waitlist')
         with self.assertRaises(ValueError): self.s.admission(other, 'approved', 'Late approval')
 
     def test_existing_admissions_migrate_to_needs_rsvp(self):
@@ -244,7 +277,7 @@ class Workflow(unittest.TestCase):
         with path.open('w', newline='') as f:
             w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows.values())
         self.s.rsvp(gone, 'not_attending', 'User declined')
-        self.s.cancelled(gone, 'Visible cancellation', now=0)
+        self.s.cancelled(gone, 'Visible cancellation')
         export(self.s, 'one', path)
         with path.open(newline='') as f: rows = {r['event_key']: r for r in csv.DictReader(f)}
         self.assertEqual(rows[asked]['your_decision'], 'RSVP needed')
@@ -311,8 +344,7 @@ class Workflow(unittest.TestCase):
         self.s.add('draft', 'https://partiful.com/e/one', {})
         self.s.ack('draft', eid, 'Read back')
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
-        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Too early', now=start - 86_401)
-        self.assertEqual(self.s.gate('one', now=start - 86_400)['reason'], 'rsvp_deadline')
+        self.assertEqual(self.s.gate('one', now=start - 86_400)['action'], 'rsvp_deadline')
 
     def test_unparseable_start_is_unknown(self):
         for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):

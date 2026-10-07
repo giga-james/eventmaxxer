@@ -87,9 +87,11 @@ supported browser, decline any optional message prompts, then record cancelled w
 evidence and sync. If the site has no such control, tell the user the exact blocker; never
 email hosts on their behalf without asking. A cancelled event is never reapplied to.
 
-An admission still unanswered `rsvp_deadline_hours` (default 24) before its start is treated
-as not attending and released the same way; read the live tracker for a newer user decision
-first. Once `max_unanswered_rsvps` (default 3) admissions await an answer, gate stops new
+An admission still unanswered `rsvp_deadline_hours` (default 24) before its start makes gate
+return rsvp_deadline. Refresh the live tracker first (run the CSV export, or read the Sheet);
+record attending if the user now says so there, otherwise record not_attending citing the
+deadline and that read, and release it the same way. A finished campaign still returns this
+RSVP work for its own registrations. Once `max_unanswered_rsvps` (default 3) admissions await an answer, gate stops new
 applications until the user responds. Both are campaign preferences.
 
 Completion requires completion of the scoped discovery plan and selected source coverage,
