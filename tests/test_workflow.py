@@ -408,6 +408,56 @@ class Workflow(unittest.TestCase):
         self.assertEqual([(r['start'], r['date'], r['day']) for r in rows], [('', '', '')] * 2)
         self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
 
+    def test_unrecognized_decision_still_asks_for_rsvp(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Maybe')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['your_decision'], 'RSVP needed')
+        self.assertIn('Earlier decision: Maybe', row['attendance_notes'])
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['attendance_notes'].count('Earlier decision: Maybe'), 1)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+
+    def test_admission_after_start_needs_no_rsvp(self):
+        late = self.s.add('one', 'https://partiful.com/e/late', {'title':'late', 'service':'partiful.com', 'start':'1970-01-01T00:00:10+00:00'})
+        self.s.review(late, 'ready', 'Free', {'free':True, 'eligible':True})
+        self.s.reserve('one', late, now=0)
+        self.s.result(late, 'approved', 'Reconciled after the event', now=20)
+        self.s.ack('one', late, 'Read back')
+        self.assertIsNone(self.s.event(late)['rsvp'])
+        eid = self.s.add('one', 'https://partiful.com/e/pend', {'title':'pend', 'service':'partiful.com', 'start':'1970-01-01T00:00:10+00:00'})
+        self.s.review(eid, 'ready', 'Free', {'free':True, 'eligible':True})
+        self.s.reserve('one', eid, now=0)
+        self.s.result(eid, 'pending', 'Pending', now=0)
+        self.s.ack('one', eid, 'Read back')
+        self.s.admission(eid, 'approved', 'Late approval email', now=20)
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+
+    def test_interrupted_export_is_not_replayed_over_chat_answer(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: no')
+        self.s.ack('one', eid, 'Read back')
+        # The file is replaced, then the process dies before confirming the checkpoint.
+        import os
+        real_replace = os.replace
+        def replace_then_die(src, dst):
+            real_replace(src, dst)
+            raise RuntimeError('killed')
+        with patch('export.os.replace', side_effect=replace_then_die):
+            with self.assertRaises(RuntimeError): export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+        self.s.rsvp(eid, 'attending', 'User in chat: actually yes')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.decision(path, eid), 'Attend')
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

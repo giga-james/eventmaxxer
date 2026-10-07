@@ -98,7 +98,8 @@ class Store:
           campaign TEXT REFERENCES campaigns(id), event TEXT REFERENCES events(id),
           data TEXT NOT NULL, PRIMARY KEY(campaign,event));
         CREATE TABLE IF NOT EXISTS tracker_cells (
-          path TEXT, event TEXT REFERENCES events(id), decision TEXT NOT NULL, PRIMARY KEY(path,event));
+          path TEXT, event TEXT REFERENCES events(id), decision TEXT NOT NULL, pending TEXT,
+          PRIMARY KEY(path,event));
         ''')
         if 'rsvp' not in {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}:
             with self.transaction():
@@ -281,7 +282,7 @@ class Store:
                     (e['account'], service, until, evidence))
             elif outcome in OUTCOMES:
                 self.db.execute('DELETE FROM cooldowns WHERE account=? AND service=?', (e['account'], service))
-                if outcome in ADMITTED:
+                if outcome in ADMITTED and not started(e['metadata'], now):
                     self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE id=? AND rsvp IS NULL", (eid,))
                 self._resync(eid)
 
@@ -312,8 +313,9 @@ class Store:
                 out.append((r['id'], start))
         return out
 
-    def admission(self, eid, outcome, evidence):
+    def admission(self, eid, outcome, evidence, now=None):
         """Record a later organizer decision on a pending or waitlisted request."""
+        now = time.time() if now is None else now
         if outcome not in OUTCOMES or not evidence.strip():
             raise ValueError('Explicit observed outcome and evidence required')
         with self.transaction():
@@ -321,7 +323,7 @@ class Store:
             if e['status'] not in ('pending', 'waitlisted') or e['rsvp'] == 'cancelled':
                 raise ValueError('Only an open pending or waitlisted request can change admission')
             rsvp = e['rsvp']
-            if outcome in ADMITTED and rsvp is None:
+            if outcome in ADMITTED and rsvp is None and not started(e['metadata'], now):
                 rsvp = 'needs_rsvp'
             elif outcome not in HELD:
                 rsvp = None  # The organizer closed the request; there is no spot left to release.

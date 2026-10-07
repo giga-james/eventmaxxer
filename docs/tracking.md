@@ -10,7 +10,8 @@ The decision column carries the RSVP: RSVP needed, Attend or Not attending, and 
 becomes cancelled after a release. The CSV export first reads decisions the user changed
 since its last write: Attend, Attending, Going or Yes confirms (and reverses a cancellation
 not yet performed); Skip, Decline, Declined, Not attending or No queues an automatic
-cancellation. An unchanged cell never overrides a newer RSVP recorded in chat. For Google Sheets the agent reads that column and records rsvp.
+cancellation. An unchanged cell never overrides a newer RSVP recorded in chat. Other wording
+on an event awaiting an RSVP shows RSVP needed; the earlier wording moves to attendance notes. For Google Sheets the agent reads that column and records rsvp.
 
 For attendance prioritization, use [recommendations.md](recommendations.md). Recommendation
 and registration status are separate fields. CSV exports opt into recommendation columns
