@@ -205,7 +205,7 @@ class Store:
         if pending:
             return {'action': 'sync', 'event': pending['event'], 'campaign': pending['campaign']}
         # Release spots the user will not use before taking any new ones.
-        release = self.db.execute("SELECT id FROM events WHERE account=? AND rsvp='cancel_pending' ORDER BY rowid LIMIT 1", (account,)).fetchone()
+        release = self.db.execute("SELECT id FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid LIMIT 1", (account,)).fetchone()
         if release:
             return {'action': 'cancel', 'event': release['id'], 'reason': 'not_attending'}
         # No answer by the deadline means the user is not planning to attend.
@@ -298,6 +298,8 @@ class Store:
             rsvp = e['rsvp']
             if outcome in ADMITTED and rsvp is None:
                 rsvp = 'needs_rsvp'
+            elif outcome not in HELD:
+                rsvp = None  # The organizer closed the request; there is no spot left to release.
             self.db.execute('UPDATE events SET status=?,evidence=?,rsvp=? WHERE id=?', (outcome, evidence, rsvp, eid))
             self._resync(eid)
 

@@ -106,6 +106,19 @@ class Recommendations(unittest.TestCase):
         self.assertEqual(self.s.gate('one')['action'], 'sync')
         self.assertEqual(row['your_decision'], 'Skip')
 
+    def test_chat_rsvp_overrides_stale_cell_in_ranking(self):
+        eid = self.event('a')
+        path = Path(self.tmp.name) / 'tracker.csv'
+        export(self.s, 'one', path, recommendations=True)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual((row['your_decision'], row['recommendation']), ('Attend', 'Shortlist'))
+        self.s.rsvp(eid, 'not_attending', 'User in chat: cannot go')
+        export(self.s, 'one', path)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual((row['your_decision'], row['recommendation']), ('Not attending', 'Skipped by you'))
+
     def test_assessment_requires_goal_and_evidence(self):
         eid = self.s.add('one', 'https://example.org/new', {})
         with self.assertRaises(ValueError):

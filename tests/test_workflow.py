@@ -321,6 +321,16 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
         with self.assertRaises(ValueError): self.s.finish('one')
 
+    def test_organizer_decline_clears_queued_cancellation(self):
+        eid = self.admit(outcome='pending', start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: withdraw')
+        self.s.ack('one', eid, 'Read back')
+        self.s.admission(eid, 'declined', 'Organizer declined the request')
+        self.s.ack('one', eid, 'Read back')
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.s.finish('one')
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

@@ -41,6 +41,16 @@ def ingest_rsvps(s, campaign, previous, destination):
             s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {path}')
 
 
+def shown_decision(event, cell):
+    """Show the recorded RSVP, keeping the user's own wording when it agrees."""
+    stated = intent(cell)
+    if event['rsvp'] and (cell in ('', 'Undecided', 'RSVP needed')
+                          or (stated and stated != rsvp_intent(event))
+                          or (rsvp_intent(event) == 'not_attending' and stated is None)):
+        return 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
+    return cell
+
+
 def export(s, campaign, destination, timezone='America/Los_Angeles', recommendations=False, limit=3):
     destination = Path(destination)
     previous = {}
@@ -55,12 +65,16 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                     raise ValueError('Duplicate keys in existing export')
                 previous[row['event_key']] = row
     ingest_rsvps(s, campaign, previous, destination)
+    decisions = {k: v['your_decision'] for k, v in previous.items()}
+    for event in s.listing(campaign):
+        if event['status'] in TRACKED:
+            decisions[event['id']] = shown_decision(event, decisions.get(event['id'], event['decision']))
     fields = FIELDS + RECOMMENDATION_FIELDS if recommendations else FIELDS
     ranked = {}
     if recommendations:
         from recommend import rank
-        ranked = {r['event_key']: r for r in rank(s, campaign, limit=limit,
-                  decisions={k: v['your_decision'] for k, v in previous.items()})}
+        # Rank from the reconciled decision, not a cell made stale by a newer RSVP.
+        ranked = {r['event_key']: r for r in rank(s, campaign, limit=limit, decisions=decisions)}
     rows = []
     for event in s.listing(campaign):
         if event['status'] not in TRACKED:
@@ -81,14 +95,8 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                 if key == 'start':
                     row.update(date=local.date().isoformat(), day=local.strftime('%A'))
         if event['id'] in previous:
-            for key in ('your_decision', 'attendance_notes'):
-                row[key] = previous[event['id']][key]
-        stated = intent(row['your_decision'])
-        if event['rsvp'] and (row['your_decision'] in ('', 'Undecided', 'RSVP needed')
-                              or (stated and stated != rsvp_intent(event))
-                              or (rsvp_intent(event) == 'not_attending' and stated is None)):
-            # Show the recorded RSVP, keeping the user's own wording when it agrees.
-            row['your_decision'] = 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
+            row['attendance_notes'] = previous[event['id']]['attendance_notes']
+        row['your_decision'] = decisions[event['id']]
         if recommendations:
             r = ranked[event['id']]
             a = r['assessment'] or {}
