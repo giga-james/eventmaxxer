@@ -100,7 +100,7 @@ Keep registration status and user decision intact. Add recommendation, fit score
 confidence, target people, why recommended, conversation plan, evidence links and known
 conflicts. Offer views for Shortlist, Conditional, Research and lower-priority alternatives.
 The CSV helper reads the live CSV decisions before ranking; explicit Skip, Decline,
-Declined and Not attending decisions are excluded. Other decision vocabularies and fixed
+Declined, Not attending and No decisions are excluded. Other decision vocabularies and fixed
 Attend commitments must be reconciled by the agent before finalizing the shortlist.
 
 For Google Sheets, use its skill and connector, inspect the actual schema first, and add

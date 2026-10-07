@@ -119,6 +119,21 @@ class Recommendations(unittest.TestCase):
             row = next(csv.DictReader(f))
         self.assertEqual((row['your_decision'], row['recommendation']), ('Not attending', 'Skipped by you'))
 
+    def test_tracker_no_is_skipped_in_ranking(self):
+        eid = self.event('a')
+        path = Path(self.tmp.name) / 'tracker.csv'
+        export(self.s, 'one', path, recommendations=True)
+        with path.open() as f:
+            rows = list(csv.DictReader(f))
+        rows[0]['your_decision'] = 'No'
+        with path.open('w') as f:
+            w = csv.DictWriter(f, FIELDS + RECOMMENDATION_FIELDS); w.writeheader(); w.writerows(rows)
+        export(self.s, 'one', path)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual((row['your_decision'], row['recommendation']), ('No', 'Skipped by you'))
+
     def test_assessment_requires_goal_and_evidence(self):
         eid = self.s.add('one', 'https://example.org/new', {})
         with self.assertRaises(ValueError):

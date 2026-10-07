@@ -22,6 +22,9 @@ TRACKED = OUTCOMES | {'cancelled'}
 RSVP_LIMIT = 3
 ATTEND_DECISION = 'Attend'
 DECLINE_DECISION = 'Not attending'
+# Tracker decision vocabulary, shared by RSVP ingestion and ranking.
+DECLINE_WORDS = {'skip', 'decline', 'declined', 'not attending', 'no'}
+ATTEND_WORDS = {'attend', 'attending', 'going', 'yes'}
 
 
 def canonical_url(url):

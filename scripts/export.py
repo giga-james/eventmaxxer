@@ -9,14 +9,12 @@ import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
-from state import Store, TRACKED, HELD, DEFAULT_HOME, started
+from state import Store, TRACKED, HELD, DEFAULT_HOME, DECLINE_WORDS, ATTEND_WORDS, started
 
 FIELDS = ['event_key','day','date','start','end','timezone','event','status','your_decision',
           'networking_fit','what_to_expect','location','hosts','url','attendance_notes','evidence']
 RECOMMENDATION_FIELDS = ['recommendation', 'fit_score', 'fit_confidence', 'target_people',
                          'why_recommended', 'conversation_plan', 'fit_sources', 'conflicting_event_keys']
-DECLINE_WORDS = {'skip', 'decline', 'declined', 'not attending', 'no'}
-ATTEND_WORDS = {'attend', 'attending', 'going', 'yes'}
 
 
 def intent(decision):
