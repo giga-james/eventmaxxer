@@ -186,7 +186,7 @@ class Workflow(unittest.TestCase):
         with self.assertRaises(ValueError): self.s.cancelled(eid, 'Cancelled')
         self.s.rsvp(eid, 'not_attending', 'User on 2026-10-07: cannot make it')
         self.s.ack('one', eid, 'Read back')
-        self.assertEqual(self.s.gate('one', now=0), {'action':'cancel','event':eid,'reason':'not_attending'})
+        self.assertEqual(self.s.gate('one', now=0), {'action':'cancel','event':eid,'reason':'not_attending','campaigns':['one']})
         with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
         with self.assertRaises(ValueError): self.s.finish('one')
         self.s.cancelled(eid, 'Visible: registration cancelled')

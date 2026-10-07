@@ -81,8 +81,9 @@ an RSVP. Record later organizer decisions with admission. Ask the user directly,
 per question: title, date/time, location and a plain attend or not-attending choice. Record
 their answer with rsvp. A Skip/Not attending tracker decision is also their answer.
 
-Not attending authorizes and requires automatic release: gate returns cancel before any new
-application. Use the event site's own cancel, un-RSVP, withdraw or "can't go" control in the
+Not attending authorizes and requires automatic release: gate returns cancel, with every campaign
+holding the event, before any new application. Refresh those live trackers first; a newer Attend
+there is recorded with rsvp instead. Use the event site's own cancel, un-RSVP, withdraw or "can't go" control in the
 supported browser, decline any optional message prompts, then record cancelled with visible
 evidence and sync. If the site has no such control, tell the user the exact blocker; never
 email hosts on their behalf without asking. A cancelled event is never reapplied to.

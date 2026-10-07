@@ -295,14 +295,16 @@ class Store:
         # Release spots the user will not use before taking any new ones.
         for r in self.db.execute("SELECT id,metadata FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid", (account,)):
             if (scope is None or r['id'] in scope) and not started(json.loads(r['metadata']), now):
-                return {'action': 'cancel', 'event': r['id'], 'reason': 'not_attending'}
+                return {'action': 'cancel', 'event': r['id'], 'reason': 'not_attending', 'campaigns': self.holders(r['id'])}
         # The deadline only prompts a live tracker check; cancelling still needs a not_attending RSVP.
         for eid, _ in self.deadline_releases(account, now):
             if scope is None or eid in scope:
-                # The user may have answered in any campaign's tracker; every one must be read.
-                holders = [r['campaign'] for r in self.db.execute('SELECT campaign FROM members WHERE event=? ORDER BY campaign', (eid,))]
-                return {'action': 'rsvp_deadline', 'event': eid, 'campaigns': holders}
+                return {'action': 'rsvp_deadline', 'event': eid, 'campaigns': self.holders(eid)}
         return None
+
+    def holders(self, eid):
+        """Campaigns whose trackers may hold the user's latest answer; read all before releasing."""
+        return [r['campaign'] for r in self.db.execute('SELECT campaign FROM members WHERE event=? ORDER BY campaign', (eid,))]
 
     def unanswered_rsvps(self, account, now):
         """Admitted upcoming events whose attendance the user has not confirmed."""
