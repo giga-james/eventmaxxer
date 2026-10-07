@@ -202,6 +202,9 @@ class Workflow(unittest.TestCase):
     def test_unanswered_rsvp_is_released_at_deadline(self):
         start = 100_000
         eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        # Without an opted-in deadline, silence never leads to a cancellation.
+        self.assertEqual(self.s.gate('one', now=start - 1)['action'], 'idle')
+        self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 24}})
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
         self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'rsvp_deadline','event':eid})
         # The deadline alone never authorizes a release; the agent must check the live tracker first.
@@ -341,6 +344,7 @@ class Workflow(unittest.TestCase):
     def test_draft_campaign_deadline_cannot_cancel(self):
         start = 100_000
         eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.configure('one', {'preferences':{'rsvp_deadline_hours':24}})
         self.s.init('draft', 'account', {'sources':[], 'preferences':{'rsvp_deadline_hours':1000}})
         self.s.add('draft', 'https://partiful.com/e/one', {})
         self.s.ack('draft', eid, 'Read back')
@@ -390,6 +394,17 @@ class Workflow(unittest.TestCase):
         self.s.ack('one', eid, 'Read back')
         self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
         self.assertEqual(self.s.gate('one', now=100_000)['action'], 'idle')
+
+    def test_migrated_unknown_start_is_exportable(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):
+            self.admit(str(i), start=start)
+        export(self.s, 'one', path)
+        with path.open(newline='') as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([(r['start'], r['date'], r['day']) for r in rows], [('', '', '')] * 2)
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
 
     def test_runner_account_lock(self):
         import fcntl

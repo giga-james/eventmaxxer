@@ -88,14 +88,16 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                    location=m.get('location', ''), hosts=m.get('hosts', ''), url=event['url'],
                    attendance_notes=event['notes'], evidence=event['evidence'], timezone=timezone)
         for key in ('start', 'end'):
-            if m.get(key):
+            try:
                 dt = datetime.fromisoformat(m[key])
-                if dt.tzinfo is None:
-                    raise ValueError('Event times must include timezone offsets')
+            except (KeyError, TypeError, ValueError):
+                continue  # Missing or unreadable times stay unknown (blank).
+            if dt.utcoffset() is not None:
                 local = dt.astimezone(ZoneInfo(timezone))
                 row[key] = local.isoformat(timespec='minutes')
                 if key == 'start':
                     row.update(date=local.date().isoformat(), day=local.strftime('%A'))
+            # A time without an offset is ambiguous, so it also stays blank rather than guessed.
         if event['id'] in previous:
             row['attendance_notes'] = previous[event['id']]['attendance_notes']
         row['your_decision'] = decisions[event['id']]

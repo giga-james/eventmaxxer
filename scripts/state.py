@@ -20,7 +20,6 @@ HELD = {'pending', 'waitlisted', 'going', 'approved'}
 TRACKED = OUTCOMES | {'cancelled'}
 # rsvp: NULL until admitted, then needs_rsvp -> attending | cancel_pending -> cancelled.
 RSVP_LIMIT = 3
-RSVP_DEADLINE_HOURS = 24
 ATTEND_DECISION = 'Attend'
 DECLINE_DECISION = 'Not attending'
 
@@ -353,14 +352,16 @@ class Store:
             self._resync(eid)
 
     def deadline_releases(self, account, now):
-        """Unanswered admissions inside the RSVP deadline of an authorized campaign that holds them."""
+        """Unanswered admissions inside an RSVP deadline the user opted into for an authorized campaign."""
         out = []
         for eid, start in self.unanswered_rsvps(account, now):
             configs = [json.loads(r['config']) for r in self.db.execute(
                 'SELECT c.config FROM campaigns c JOIN members m ON m.campaign=c.id WHERE m.event=?', (eid,))]
-            # Only a campaign the user authorized may cause a cancellation.
-            hours = [c.get('preferences', {}).get('rsvp_deadline_hours', RSVP_DEADLINE_HOURS)
-                     for c in configs if c.get('authorization')]
+            # Opt-in only: silence counts as not attending only where the user set a deadline
+            # in an authorized campaign. Application consent alone never covers cancellation.
+            hours = [h for c in configs if c.get('authorization')
+                     for h in [c.get('preferences', {}).get('rsvp_deadline_hours')]
+                     if type(h) in (int, float) and h > 0]
             if start is not None and hours and start - max(hours) * 3600 <= now:
                 out.append((eid, start))
         return out

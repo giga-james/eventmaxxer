@@ -48,8 +48,8 @@ Admission and RSVP:
 admission records a later organizer decision on a pending or waitlisted request. Going or
 approved sets rsvp to needs_rsvp. rsvp records only the user's answer and can also withdraw
 a pending or waitlisted request. not_attending sets cancel_pending; gate then returns
-{"action":"cancel"} before any new application. An unanswered admission inside
-preferences.rsvp_deadline_hours (default 24) of its start returns {"action":"rsvp_deadline"}:
+{"action":"cancel"} before any new application. When the user has opted in
+with preferences.rsvp_deadline_hours (no default), an unanswered admission inside that window returns {"action":"rsvp_deadline"}:
 refresh the live tracker, then record the user's answer or not_attending citing the deadline.
 cancelled requires a recorded not_attending. Record cancelled only from visible evidence; status becomes cancelled and the event cannot be reviewed again. With
 preferences.max_unanswered_rsvps (default 3) upcoming admissions unanswered, gate returns
