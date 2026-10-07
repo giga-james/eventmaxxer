@@ -298,7 +298,9 @@ class Store:
         # The deadline only prompts a live tracker check; cancelling still needs a not_attending RSVP.
         for eid, _ in self.deadline_releases(account, now):
             if scope is None or eid in scope:
-                return {'action': 'rsvp_deadline', 'event': eid}
+                # The user may have answered in any campaign's tracker; every one must be read.
+                holders = [r['campaign'] for r in self.db.execute('SELECT campaign FROM members WHERE event=? ORDER BY campaign', (eid,))]
+                return {'action': 'rsvp_deadline', 'event': eid, 'campaigns': holders}
         return None
 
     def unanswered_rsvps(self, account, now):

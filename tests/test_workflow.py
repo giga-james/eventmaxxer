@@ -206,7 +206,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.gate('one', now=start - 1)['action'], 'idle')
         self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 24}})
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
-        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'rsvp_deadline','event':eid})
+        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'rsvp_deadline','event':eid,'campaigns':['one']})
         # The deadline alone never authorizes a release; the agent must check the live tracker first.
         with self.assertRaises(ValueError): self.s.cancelled(eid, 'Deadline passed')
         self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 48}})
@@ -350,6 +350,8 @@ class Workflow(unittest.TestCase):
         self.s.ack('draft', eid, 'Read back')
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
         self.assertEqual(self.s.gate('one', now=start - 86_400)['action'], 'rsvp_deadline')
+        # Every tracker holding the registration is named, including one from another campaign.
+        self.assertEqual(self.s.gate('one', now=start - 86_400)['campaigns'], ['draft', 'one'])
 
     def test_unparseable_start_is_unknown(self):
         for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):

@@ -50,7 +50,8 @@ approved sets rsvp to needs_rsvp. rsvp records only the user's answer and can al
 a pending or waitlisted request. not_attending sets cancel_pending; gate then returns
 {"action":"cancel"} before any new application. When the user has opted in
 with preferences.rsvp_deadline_hours (no default), an unanswered admission inside that window returns {"action":"rsvp_deadline"}:
-refresh the live tracker, then record the user's answer or not_attending citing the deadline.
+refresh the live tracker of every listed campaign, then record the user's answer or a
+not_attending citing the deadline and those reads.
 cancelled requires a recorded not_attending. Record cancelled only from visible evidence; status becomes cancelled and the event cannot be reviewed again. With
 preferences.max_unanswered_rsvps (default 3) upcoming admissions unanswered, gate returns
 idle/awaiting_rsvp. Existing databases migrate upcoming admitted events to needs_rsvp and queue tracker sync on
