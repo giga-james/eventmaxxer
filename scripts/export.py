@@ -8,7 +8,8 @@ from pathlib import Path
 import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from state import Store, TRACKED, HELD, DEFAULT_HOME
+import time
+from state import Store, TRACKED, HELD, DEFAULT_HOME, started
 
 FIELDS = ['event_key','day','date','start','end','timezone','event','status','your_decision',
           'networking_fit','what_to_expect','location','hosts','url','attendance_notes','evidence']
@@ -37,7 +38,8 @@ def ingest_rsvps(s, campaign, previous, destination):
         # A cell this export wrote last time is not a new answer; it may predate a chat RSVP.
         if cell == written.get(event['id']) or answer is None or answer == rsvp_intent(event):
             continue
-        if event['status'] in HELD and event['rsvp'] != 'cancelled':
+        # A past event's spot can no longer be released, so its cell stays a historical note.
+        if event['status'] in HELD and event['rsvp'] != 'cancelled' and not started(event['metadata'], time.time()):
             s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {path}')
 
 

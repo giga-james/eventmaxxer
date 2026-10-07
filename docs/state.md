@@ -53,7 +53,8 @@ preferences.rsvp_deadline_hours (default 24) of its start returns {"action":"rsv
 refresh the live tracker, then record the user's answer or not_attending citing the deadline.
 cancelled requires a recorded not_attending. Record cancelled only from visible evidence; status becomes cancelled and the event cannot be reviewed again. With
 preferences.max_unanswered_rsvps (default 3) upcoming admissions unanswered, gate returns
-idle/awaiting_rsvp. Existing databases migrate admitted events to needs_rsvp and queue tracker sync on first open.
+idle/awaiting_rsvp. Existing databases migrate upcoming admitted events to needs_rsvp and queue tracker sync on
+first open. An event whose known start has passed cannot be queued or cancelled.
 finish refuses while upcoming admissions are unanswered or cancellations are queued. A finished
 campaign's gate still returns sync, cancel or rsvp_deadline work for its own registrations.
 

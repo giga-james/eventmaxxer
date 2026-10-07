@@ -47,6 +47,12 @@ def start_epoch(value):
     return dt.timestamp() if dt.utcoffset() is not None else None
 
 
+def started(metadata, now):
+    """True only when the event's known start has passed; its spot can no longer be released."""
+    start = start_epoch(metadata.get('start'))
+    return start is not None and start <= now
+
+
 class Store:
     def __init__(self, home=DEFAULT_HOME):
         self.home = Path(home).expanduser().resolve()
@@ -95,8 +101,11 @@ class Store:
         if 'rsvp' not in {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}:
             with self.transaction():
                 self.db.execute('ALTER TABLE events ADD COLUMN rsvp TEXT')
-                # Admissions recorded before the RSVP flow still need an attendance answer.
-                self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE status IN ('going','approved')")
+                # Upcoming admissions recorded before the RSVP flow still need an attendance answer.
+                now = time.time()
+                for r in self.db.execute("SELECT id,metadata FROM events WHERE status IN ('going','approved')").fetchall():
+                    if not started(json.loads(r['metadata']), now):
+                        self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE id=?", (r['id'],))
                 # Re-export them so the tracker asks the user for the new decision.
                 self.db.execute("INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT m.campaign,m.event,1 FROM members m JOIN events e ON e.id=m.event WHERE e.rsvp='needs_rsvp'")
 
@@ -281,8 +290,8 @@ class Store:
             if campaign is None or r['campaign'] == campaign:
                 return {'action': 'sync', 'event': r['event'], 'campaign': r['campaign']}
         # Release spots the user will not use before taking any new ones.
-        for r in self.db.execute("SELECT id FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid", (account,)):
-            if scope is None or r['id'] in scope:
+        for r in self.db.execute("SELECT id,metadata FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid", (account,)):
+            if (scope is None or r['id'] in scope) and not started(json.loads(r['metadata']), now):
                 return {'action': 'cancel', 'event': r['id'], 'reason': 'not_attending'}
         # The deadline only prompts a live tracker check; cancelling still needs a not_attending RSVP.
         for eid, _ in self.deadline_releases(account, now):
@@ -315,14 +324,17 @@ class Store:
             self.db.execute('UPDATE events SET status=?,evidence=?,rsvp=? WHERE id=?', (outcome, evidence, rsvp, eid))
             self._resync(eid)
 
-    def rsvp(self, eid, intent, evidence):
+    def rsvp(self, eid, intent, evidence, now=None):
         """Record the user's own attendance answer. not_attending queues an automatic release."""
+        now = time.time() if now is None else now
         if intent not in ('attending', 'not_attending') or not evidence.strip():
             raise ValueError('RSVP needs attending or not_attending and the user\'s answer as evidence')
         with self.transaction():
             e = self.event(eid)
             if e['status'] not in HELD or e['rsvp'] == 'cancelled':
                 raise ValueError('RSVP applies only to a registration the user still holds')
+            if started(e['metadata'], now):
+                raise ValueError('The event has started; there is no spot left to release')
             rsvp, decision = ('attending', ATTEND_DECISION) if intent == 'attending' else ('cancel_pending', DECLINE_DECISION)
             notes = (e['notes'] + '\n' if e['notes'] else '') + 'RSVP: ' + evidence
             self.db.execute('UPDATE events SET rsvp=?,decision=?,notes=? WHERE id=?', (rsvp, decision, notes, eid))
@@ -399,10 +411,11 @@ class Store:
             if any(e['status'] in ('discovered', 'ready', 'submitting', 'needs_input') for e in self.listing(campaign)):
                 raise ValueError('Unresolved events remain')
             events = self.listing(campaign)
-            if any(e['rsvp'] == 'cancel_pending' for e in events):
+            now = time.time()
+            if any(e['rsvp'] == 'cancel_pending' and not started(e['metadata'], now) for e in events):
                 raise ValueError('Cancellations the user requested remain')
             mine = {e['id'] for e in events}
-            if any(eid in mine for eid, _ in self.unanswered_rsvps(c['account'], time.time())):
+            if any(eid in mine for eid, _ in self.unanswered_rsvps(c['account'], now)):
                 raise ValueError('Upcoming admissions still need an RSVP')
             if self.db.execute('SELECT 1 FROM sync WHERE campaign=? AND pending=1', (campaign,)).fetchone():
                 raise ValueError('Tracker sync pending')

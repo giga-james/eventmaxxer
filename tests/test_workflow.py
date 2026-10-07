@@ -208,7 +208,7 @@ class Workflow(unittest.TestCase):
         with self.assertRaises(ValueError): self.s.cancelled(eid, 'Deadline passed')
         self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 48}})
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'rsvp_deadline')
-        self.s.rsvp(eid, 'not_attending', 'RSVP deadline passed; live tracker read shows no answer')
+        self.s.rsvp(eid, 'not_attending', 'RSVP deadline passed; live tracker read shows no answer', now=start - 86_401)
         self.s.ack('one', eid, 'Read back')
         self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'cancel')
         self.s.cancelled(eid, 'Visible cancellation')
@@ -216,14 +216,15 @@ class Workflow(unittest.TestCase):
 
     def test_deadline_check_honors_a_tracker_attend(self):
         path = self.home / 'events.csv'
-        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
-        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)},
+                                 'preferences':{'rsvp_deadline_hours':1_000_000}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
         export(self.s, 'one', path)
         self.write_decision(path, eid, 'Attend')
-        self.assertEqual(self.s.gate('one', now=100_000 - 86_400)['action'], 'rsvp_deadline')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'rsvp_deadline')
         export(self.s, 'one', path)  # The live tracker refresh the gate asks for.
         self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
-        self.assertEqual(self.s.gate('one', now=100_000 - 86_400)['action'], 'idle')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
 
     def test_finished_campaign_follows_through_on_rsvps(self):
         eid = self.admit(start='2033-05-18T03:33:20+00:00')
@@ -362,6 +363,33 @@ class Workflow(unittest.TestCase):
         self.assertIsNone(self.s.event(eid)['rsvp'])
         self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
         self.s.finish('one')
+
+    def test_past_admissions_are_not_migrated_or_released(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        past = self.admit('past', start='2020-01-01T18:00:00+00:00')
+        self.s.rsvp(past, 'attending', 'User: yes', now=0)
+        self.s.ack('one', past, 'Read back')
+        export(self.s, 'one', path)
+        self.write_decision(path, past, 'Skip')
+        # Simulate a pre-RSVP database with a historical Skip and no tracker_cells record.
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.execute("DELETE FROM tracker_cells")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertIsNone(self.s.event(past)['rsvp'])
+        export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, past), 'Skip')
+        self.assertEqual(self.s.gate('one')['action'], 'idle')
+        with self.assertRaises(ValueError): self.s.rsvp(past, 'not_attending', 'Too late')
+
+    def test_queued_release_for_started_event_does_not_block(self):
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: no', now=0)
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+        self.assertEqual(self.s.gate('one', now=100_000)['action'], 'idle')
 
     def test_runner_account_lock(self):
         import fcntl
