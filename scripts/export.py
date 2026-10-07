@@ -23,15 +23,22 @@ def intent(decision):
     return 'not_attending' if value in DECLINE_WORDS else 'attending' if value in ATTEND_WORDS else None
 
 
+def rsvp_intent(event):
+    return {'attending': 'attending', 'cancel_pending': 'not_attending', 'cancelled': 'not_attending'}.get(event['rsvp'])
+
+
 def ingest_rsvps(s, campaign, previous, destination):
-    """Treat the user's tracker decision as their RSVP; a decline queues an automatic release."""
+    """Treat a decision the user changed in the tracker as their RSVP; a decline queues a release."""
+    path = str(destination.resolve())
+    written = {r['event']: r['decision'] for r in s.db.execute('SELECT event,decision FROM tracker_cells WHERE path=?', (path,))}
     for event in s.listing(campaign):
         cell = previous.get(event['id'], {}).get('your_decision', '')
         answer = intent(cell)
-        if event['status'] not in HELD or event['rsvp'] in ('cancel_pending', 'cancelled') or answer is None:
+        # A cell this export wrote last time is not a new answer; it may predate a chat RSVP.
+        if cell == written.get(event['id']) or answer is None or answer == rsvp_intent(event):
             continue
-        if answer == 'not_attending' or event['rsvp'] != 'attending':
-            s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {destination.resolve()}')
+        if event['status'] in HELD and event['rsvp'] != 'cancelled':
+            s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {path}')
 
 
 def export(s, campaign, destination, timezone='America/Los_Angeles', recommendations=False, limit=3):
@@ -76,11 +83,12 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
         if event['id'] in previous:
             for key in ('your_decision', 'attendance_notes'):
                 row[key] = previous[event['id']][key]
-        if event['rsvp'] and row['your_decision'] in ('', 'Undecided', 'RSVP needed'):
-            # Show the recorded RSVP without overwriting the user's own wording.
+        stated = intent(row['your_decision'])
+        if event['rsvp'] and (row['your_decision'] in ('', 'Undecided', 'RSVP needed')
+                              or (stated and stated != rsvp_intent(event))
+                              or (rsvp_intent(event) == 'not_attending' and stated is None)):
+            # Show the recorded RSVP, keeping the user's own wording when it agrees.
             row['your_decision'] = 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
-        elif event['rsvp'] in ('cancel_pending', 'cancelled') and intent(row['your_decision']) != 'not_attending':
-            row['your_decision'] = event['decision']
         if recommendations:
             r = ranked[event['id']]
             a = r['assessment'] or {}
@@ -107,6 +115,9 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
         actual = list(csv.DictReader(f))
     if actual != rows:
         raise ValueError('Export read-back mismatch')
+    with s.transaction():
+        s.db.executemany('INSERT OR REPLACE INTO tracker_cells VALUES(?,?,?)',
+                         [(str(destination.resolve()), r['event_key'], r['your_decision']) for r in rows if r['event_key'] in keys])
     tracker = json.loads(s.campaign(campaign)['config']).get('tracker', {})
     if tracker.get('kind') == 'csv' and tracker.get('path') and Path(tracker['path']).expanduser().resolve() == destination.resolve():
         for eid in keys:

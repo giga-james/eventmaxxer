@@ -7,9 +7,10 @@ Unknown end/venue stays unknown. Multi-day end dates remain explicit. Do not imp
 investors or customers are guaranteed attendees.
 
 The decision column carries the RSVP: RSVP needed, Attend or Not attending, and status
-becomes cancelled after a release. The CSV export reads the user's decision first: Attend,
-Attending, Going or Yes confirms; Skip, Decline, Declined, Not attending or No queues an
-automatic cancellation. For Google Sheets the agent reads that column and records rsvp.
+becomes cancelled after a release. The CSV export first reads decisions the user changed
+since its last write: Attend, Attending, Going or Yes confirms (and reverses a cancellation
+not yet performed); Skip, Decline, Declined, Not attending or No queues an automatic
+cancellation. An unchanged cell never overrides a newer RSVP recorded in chat. For Google Sheets the agent reads that column and records rsvp.
 
 For attendance prioritization, use [recommendations.md](recommendations.md). Recommendation
 and registration status are separate fields. CSV exports opt into recommendation columns

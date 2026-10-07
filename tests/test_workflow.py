@@ -256,6 +256,54 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
         self.assertEqual((rows[gone]['status'], rows[gone]['your_decision']), ('cancelled', 'Not attending'))
 
+    def write_decision(self, path, eid, decision):
+        with path.open(newline='') as f: rows = list(csv.DictReader(f))
+        for r in rows:
+            if r['event_key'] == eid: r['your_decision'] = decision
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows)
+
+    def decision(self, path, eid):
+        with path.open(newline='') as f:
+            return next(r['your_decision'] for r in csv.DictReader(f) if r['event_key'] == eid)
+
+    def test_tracker_can_reverse_queued_cancellation_and_chat_answer_wins_over_stale_cell(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Skip')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        # User corrects the cell before the agent releases the spot.
+        self.write_decision(path, eid, 'Attend')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.assertEqual(self.decision(path, eid), 'Attend')
+        # A later chat answer is not undone by the cell the export wrote before it.
+        self.s.rsvp(eid, 'not_attending', 'User in chat: cannot go')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+
+    def test_migrated_admissions_are_queued_for_tracker_sync(self):
+        eid = self.admit()
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.gate('one', now=0), {'action':'sync','event':eid,'campaign':'one'})
+
+    def test_finish_waits_for_upcoming_rsvps(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        with self.assertRaises(ValueError): self.s.finish('one')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        self.s.ack('one', eid, 'Read back')
+        self.s.finish('one')
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

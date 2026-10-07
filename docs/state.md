@@ -52,7 +52,8 @@ a pending or waitlisted request. not_attending sets cancel_pending; gate then re
 inside preferences.rsvp_deadline_hours (default 24) of its start. Record cancelled only from
 visible evidence; status becomes cancelled and the event cannot be reviewed again. With
 preferences.max_unanswered_rsvps (default 3) upcoming admissions unanswered, gate returns
-idle/awaiting_rsvp. Existing databases migrate admitted events to needs_rsvp on first open.
+idle/awaiting_rsvp. Existing databases migrate admitted events to needs_rsvp and queue tracker sync on first open.
+finish refuses while upcoming admissions are unanswered or cancellations are queued.
 
 Missing facts:
 

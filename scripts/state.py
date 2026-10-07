@@ -80,12 +80,16 @@ class Store:
         CREATE TABLE IF NOT EXISTS assessments (
           campaign TEXT REFERENCES campaigns(id), event TEXT REFERENCES events(id),
           data TEXT NOT NULL, PRIMARY KEY(campaign,event));
+        CREATE TABLE IF NOT EXISTS tracker_cells (
+          path TEXT, event TEXT REFERENCES events(id), decision TEXT NOT NULL, PRIMARY KEY(path,event));
         ''')
         if 'rsvp' not in {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}:
             with self.transaction():
                 self.db.execute('ALTER TABLE events ADD COLUMN rsvp TEXT')
                 # Admissions recorded before the RSVP flow still need an attendance answer.
                 self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE status IN ('going','approved')")
+                # Re-export them so the tracker asks the user for the new decision.
+                self.db.execute("INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT m.campaign,m.event,1 FROM members m JOIN events e ON e.id=m.event WHERE e.rsvp='needs_rsvp'")
 
     @contextmanager
     def transaction(self):
@@ -371,8 +375,12 @@ class Store:
                 raise ValueError('Discovery not complete')
             if any(e['status'] in ('discovered', 'ready', 'submitting', 'needs_input') for e in self.listing(campaign)):
                 raise ValueError('Unresolved events remain')
-            if any(e['rsvp'] == 'cancel_pending' for e in self.listing(campaign)):
+            events = self.listing(campaign)
+            if any(e['rsvp'] == 'cancel_pending' for e in events):
                 raise ValueError('Cancellations the user requested remain')
+            mine = {e['id'] for e in events}
+            if any(eid in mine for eid, _ in self.unanswered_rsvps(c['account'], time.time())):
+                raise ValueError('Upcoming admissions still need an RSVP')
             if self.db.execute('SELECT 1 FROM sync WHERE campaign=? AND pending=1', (campaign,)).fetchone():
                 raise ValueError('Tracker sync pending')
             self.db.execute('UPDATE campaigns SET complete=1,active=0 WHERE id=?', (campaign,))
