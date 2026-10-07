@@ -51,7 +51,9 @@ If only the current app has browser tools, use its supported automation API. Sav
 ID and state home in the prompt. On wake, run gate first. Wait/idle means quiet exit with
 no browser work. Apply means one reserved application, verify, sync, and continue until
 blocked. Reconcile means inspect the existing uncertain attempt before applying again.
-Sync means repair the tracker first.
+Sync means repair the tracker first. Cancel means release that registration on the event
+site, verify it and record cancelled before applying. Idle/awaiting_rsvp is quiet; the user
+was already asked for those RSVPs.
 
 This fallback consumes a model turn per wake; be explicit about that limitation. Do not
 claim the local gate is installed or token-free if using an app heartbeat.

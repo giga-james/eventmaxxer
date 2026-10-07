@@ -155,6 +155,107 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.gate('two'), {'action':'sync','event':first,'campaign':'one'})
         with self.assertRaises(ValueError): self.s.reserve('two', second)
 
+    def admit(self, slug='one', start='2026-10-07T17:30:00-07:00', outcome='approved'):
+        eid = self.s.add('one', 'https://partiful.com/e/' + slug,
+                         {'title':slug, 'service':'partiful.com', 'start':start})
+        self.s.review(eid, 'ready', 'Explicitly free', {'free':True, 'eligible':True})
+        self.s.reserve('one', eid, now=0)
+        self.s.result(eid, outcome, 'Approval visible', now=0)
+        self.s.ack('one', eid, 'Read back tracker row')
+        return eid
+
+    def test_admission_requires_rsvp_and_backlog_stops_new_applications(self):
+        later = 2_000_000_000
+        admitted = [self.admit(str(i), start='2033-05-18T03:33:20+00:00') for i in range(3)]
+        self.assertEqual(self.s.event(admitted[0])['rsvp'], 'needs_rsvp')
+        fresh = self.ready('fresh')
+        gate = self.s.gate('one', now=0)
+        self.assertEqual((gate['action'], gate['reason'], gate['events']), ('idle', 'awaiting_rsvp', admitted))
+        with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
+        self.s.rsvp(admitted[0], 'attending', 'User said yes on 2026-10-07')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        self.s.ack('one', admitted[0], 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'apply','event':fresh})
+        self.assertEqual(self.s.event(admitted[0])['decision'], 'Attend')
+        # Past events no longer count against the backlog.
+        self.assertEqual(self.s.unanswered_rsvps('account', later), [])
+
+    def test_not_attending_automatically_cancels_before_new_applications(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        fresh = self.ready('fresh')
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Cancelled', now=0)
+        self.s.rsvp(eid, 'not_attending', 'User on 2026-10-07: cannot make it')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'cancel','event':eid,'reason':'not_attending'})
+        with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
+        with self.assertRaises(ValueError): self.s.finish('one')
+        self.s.cancelled(eid, 'Visible: registration cancelled', now=0)
+        e = self.s.event(eid)
+        self.assertEqual((e['status'], e['rsvp'], e['decision']), ('cancelled', 'cancelled', 'Not attending'))
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'apply','event':fresh})
+        # A cancelled spot is never re-reviewed into a new application.
+        with self.assertRaises(ValueError): self.s.review(eid, 'ready', 'Free', {'free':True, 'eligible':True})
+        with self.assertRaises(ValueError): self.s.rsvp(eid, 'attending', 'Changed mind')
+
+    def test_unanswered_rsvp_is_released_at_deadline(self):
+        start = 100_000
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
+        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'cancel','event':eid,'reason':'rsvp_deadline'})
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Too early', now=start - 86_401)
+        prefs = {'rsvp_deadline_hours': 48}
+        self.s.configure('one', {'preferences': prefs})
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['reason'], 'rsvp_deadline')
+        self.s.cancelled(eid, 'Visible cancellation', now=start - 86_401)
+        self.assertEqual(self.s.event(eid)['status'], 'cancelled')
+
+    def test_later_admission_starts_rsvp_and_pending_can_be_withdrawn(self):
+        eid = self.admit(outcome='pending', start='2033-05-18T03:33:20+00:00')
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+        self.s.admission(eid, 'approved', 'Approval email visible')
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        with self.assertRaises(ValueError): self.s.admission(eid, 'declined', 'Already approved')
+        self.s.ack('one', eid, 'Read back')
+        other = self.admit('two', outcome='waitlisted', start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(other, 'not_attending', 'User: withdraw')
+        self.s.cancelled(other, 'Left waitlist', now=0)
+        with self.assertRaises(ValueError): self.s.admission(other, 'approved', 'Late approval')
+
+    def test_existing_admissions_migrate_to_needs_rsvp(self):
+        eid = self.admit()
+        self.s.db.execute("UPDATE events SET rsvp=NULL")
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+
+    def test_export_shows_rsvp_and_cancellation(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        asked = self.admit('asked', start='2033-05-18T03:33:20+00:00')
+        gone = self.admit('gone', start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: rows = {r['event_key']: r for r in csv.DictReader(f)}
+        rows[gone]['your_decision'] = 'Maybe'
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows.values())
+        self.s.rsvp(gone, 'not_attending', 'User declined')
+        self.s.cancelled(gone, 'Visible cancellation', now=0)
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: rows = {r['event_key']: r for r in csv.DictReader(f)}
+        self.assertEqual(rows[asked]['your_decision'], 'RSVP needed')
+        rows[asked]['your_decision'] = 'Attend'
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows.values())
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(asked)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.assertEqual((rows[gone]['status'], rows[gone]['your_decision']), ('cancelled', 'Not attending'))
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

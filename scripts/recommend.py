@@ -73,7 +73,7 @@ def rank(store, campaign, limit=3, now=None, decisions=None):
         decision = (decisions or {}).get(event['id'], event['decision']).strip().lower()
         if decision in ('skip', 'decline', 'declined', 'not attending'):
             item.update(recommendation='Skipped by you', reason='Preserved attendance decision')
-        elif event['status'] in ('declined', 'closed', 'skipped'):
+        elif event['status'] in ('declined', 'closed', 'skipped', 'cancelled'):
             item.update(recommendation='Unavailable', reason='Registration is ' + event['status'])
         elif start and (end or start) <= now:
             item.update(recommendation='Past', reason='Event has ended or its known start has passed')

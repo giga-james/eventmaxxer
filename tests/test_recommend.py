@@ -29,6 +29,8 @@ class Recommendations(unittest.TestCase):
         self.s.review(eid, 'ready', 'Free and eligible', {'free': True, 'eligible': True})
         self.s.reserve('one', eid)
         self.s.result(eid, status, 'Verified test status')
+        if status in ('approved', 'going'):
+            self.s.rsvp(eid, 'attending', 'Fictional user confirmed attendance')
         self.s.ack('one', eid, 'Test tracker readback')
         assess(self.s, 'one', eid, {'audience_fit': fit, 'conversation_access': 2,
             'confidence': confidence, 'target_people': 'Robotics procurement leads',
@@ -99,6 +101,10 @@ class Recommendations(unittest.TestCase):
         self.assertEqual(row['recommendation'], 'Skipped by you')
         self.assertEqual(row['attendance_notes'], 'Personal note')
         self.assertEqual(row['status'], 'approved')
+        # The tracker Skip is the user's RSVP, so the spot is queued for automatic release.
+        self.assertEqual(self.s.event(row['event_key'])['rsvp'], 'cancel_pending')
+        self.assertEqual(self.s.gate('one')['action'], 'sync')
+        self.assertEqual(row['your_decision'], 'Skip')
 
     def test_assessment_requires_goal_and_evidence(self):
         eid = self.s.add('one', 'https://example.org/new', {})

@@ -8,12 +8,30 @@ from pathlib import Path
 import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from state import Store, OUTCOMES, DEFAULT_HOME
+from state import Store, TRACKED, HELD, DEFAULT_HOME
 
 FIELDS = ['event_key','day','date','start','end','timezone','event','status','your_decision',
           'networking_fit','what_to_expect','location','hosts','url','attendance_notes','evidence']
 RECOMMENDATION_FIELDS = ['recommendation', 'fit_score', 'fit_confidence', 'target_people',
                          'why_recommended', 'conversation_plan', 'fit_sources', 'conflicting_event_keys']
+DECLINE_WORDS = {'skip', 'decline', 'declined', 'not attending', 'no'}
+ATTEND_WORDS = {'attend', 'attending', 'going', 'yes'}
+
+
+def intent(decision):
+    value = (decision or '').strip().lower()
+    return 'not_attending' if value in DECLINE_WORDS else 'attending' if value in ATTEND_WORDS else None
+
+
+def ingest_rsvps(s, campaign, previous, destination):
+    """Treat the user's tracker decision as their RSVP; a decline queues an automatic release."""
+    for event in s.listing(campaign):
+        cell = previous.get(event['id'], {}).get('your_decision', '')
+        answer = intent(cell)
+        if event['status'] not in HELD or event['rsvp'] in ('cancel_pending', 'cancelled') or answer is None:
+            continue
+        if answer == 'not_attending' or event['rsvp'] != 'attending':
+            s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {destination.resolve()}')
 
 
 def export(s, campaign, destination, timezone='America/Los_Angeles', recommendations=False, limit=3):
@@ -29,6 +47,7 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                 if row['event_key'] in previous:
                     raise ValueError('Duplicate keys in existing export')
                 previous[row['event_key']] = row
+    ingest_rsvps(s, campaign, previous, destination)
     fields = FIELDS + RECOMMENDATION_FIELDS if recommendations else FIELDS
     ranked = {}
     if recommendations:
@@ -37,7 +56,7 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                   decisions={k: v['your_decision'] for k, v in previous.items()})}
     rows = []
     for event in s.listing(campaign):
-        if event['status'] not in OUTCOMES:
+        if event['status'] not in TRACKED:
             continue
         m = event['metadata']
         row = {field: '' for field in fields}
@@ -57,6 +76,11 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
         if event['id'] in previous:
             for key in ('your_decision', 'attendance_notes'):
                 row[key] = previous[event['id']][key]
+        if event['rsvp'] and row['your_decision'] in ('', 'Undecided', 'RSVP needed'):
+            # Show the recorded RSVP without overwriting the user's own wording.
+            row['your_decision'] = 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
+        elif event['rsvp'] in ('cancel_pending', 'cancelled') and intent(row['your_decision']) != 'not_attending':
+            row['your_decision'] = event['decision']
         if recommendations:
             r = ranked[event['id']]
             a = r['assessment'] or {}

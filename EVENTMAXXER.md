@@ -26,6 +26,11 @@ Ask one factual question per prompt/card. Prefer existing facts and permissions 
 onboarding interview. New campaigns are draft until authorization is recorded.
 Event sources are optional; do not require the user to supply a calendar or website.
 
+Applying gives the user a chance to attend events whose admission is uncertain. It is not a
+way to hold spots. After each acceptance, ask whether they plan to attend and automatically
+cancel the registration when they do not, so hosts can release the spot. See the RSVP section
+of the skill.
+
 Private state belongs outside both the distro and any host product repo. Use the shared
 state home across campaigns so account-wide reservations, deduplication and cooldowns
 work. Each account value is an opaque, stable registration-account label; use the same
