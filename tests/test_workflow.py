@@ -304,6 +304,23 @@ class Workflow(unittest.TestCase):
         self.s.ack('one', eid, 'Read back')
         self.s.finish('one')
 
+    def test_draft_campaign_deadline_cannot_cancel(self):
+        start = 100_000
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.init('draft', 'account', {'sources':[], 'preferences':{'rsvp_deadline_hours':1000}})
+        self.s.add('draft', 'https://partiful.com/e/one', {})
+        self.s.ack('draft', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Too early', now=start - 86_401)
+        self.assertEqual(self.s.gate('one', now=start - 86_400)['reason'], 'rsvp_deadline')
+
+    def test_unparseable_start_is_unknown(self):
+        for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):
+            eid = self.admit(str(i), start=start)
+            self.assertEqual(self.s.unanswered_rsvps('account', 0)[-1], (eid, None))
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        with self.assertRaises(ValueError): self.s.finish('one')
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

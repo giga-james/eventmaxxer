@@ -38,6 +38,15 @@ def canonical_url(url):
     return urlunsplit((p.scheme.lower(), host, path, query, '' if p.hostname.lower() in ('partiful.com', 'www.partiful.com') else p.fragment))
 
 
+def start_epoch(value):
+    """Offset-aware ISO start as an epoch; anything else is an unknown start."""
+    try:
+        dt = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return dt.timestamp() if dt.utcoffset() is not None else None
+
+
 class Store:
     def __init__(self, home=DEFAULT_HOME):
         self.home = Path(home).expanduser().resolve()
@@ -273,8 +282,7 @@ class Store:
         """Admitted upcoming events whose attendance the user has not confirmed."""
         out = []
         for r in self.db.execute("SELECT id,metadata FROM events WHERE account=? AND rsvp='needs_rsvp' ORDER BY rowid", (account,)):
-            start = json.loads(r['metadata']).get('start')
-            start = datetime.fromisoformat(start).timestamp() if start else None
+            start = start_epoch(json.loads(r['metadata']).get('start'))
             if start is None or start > now:
                 out.append((r['id'], start))
         return out
@@ -321,12 +329,15 @@ class Store:
             self._resync(eid)
 
     def deadline_releases(self, account, now):
-        """Unanswered admissions inside the RSVP deadline of any campaign that holds them."""
+        """Unanswered admissions inside the RSVP deadline of an authorized campaign that holds them."""
         out = []
         for eid, start in self.unanswered_rsvps(account, now):
-            hours = [json.loads(r['config']).get('preferences', {}).get('rsvp_deadline_hours', RSVP_DEADLINE_HOURS)
-                     for r in self.db.execute('SELECT c.config FROM campaigns c JOIN members m ON m.campaign=c.id WHERE m.event=?', (eid,))]
-            if start is not None and start - max(hours or [RSVP_DEADLINE_HOURS]) * 3600 <= now:
+            configs = [json.loads(r['config']) for r in self.db.execute(
+                'SELECT c.config FROM campaigns c JOIN members m ON m.campaign=c.id WHERE m.event=?', (eid,))]
+            # Only a campaign the user authorized may cause a cancellation.
+            hours = [c.get('preferences', {}).get('rsvp_deadline_hours', RSVP_DEADLINE_HOURS)
+                     for c in configs if c.get('authorization')]
+            if start is not None and hours and start - max(hours) * 3600 <= now:
                 out.append((eid, start))
         return out
 
