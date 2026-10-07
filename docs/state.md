@@ -38,6 +38,27 @@ UTC epoch. Without an explicit deadline, the script uses 20 minutes. Unknown res
 leave submitting; gate returns reconcile until actual state is established. not_submitted
 requires evidence that it did not submit, not just lack of a confirmation.
 
+Admission and RSVP:
+
+    python3 scripts/state.py admission --event EVENT_ID --json '{"outcome":"approved","evidence":"Approval email for the matching event"}'
+    python3 scripts/state.py rsvp --event EVENT_ID --json '{"intent":"attending","evidence":"User on YYYY-MM-DD: will attend"}'
+    python3 scripts/state.py rsvp --event EVENT_ID --json '{"intent":"not_attending","evidence":"User on YYYY-MM-DD: cannot attend"}'
+    python3 scripts/state.py cancelled --event EVENT_ID --json '{"evidence":"Visible confirmation: registration cancelled"}'
+
+admission records a later organizer decision on a pending or waitlisted request. Going or
+approved sets rsvp to needs_rsvp. rsvp records only the user's answer and can also withdraw
+a pending or waitlisted request. not_attending sets cancel_pending; gate then returns
+{"action":"cancel"} before any new application. When the user has opted in
+with preferences.rsvp_deadline_hours (no default), an unanswered admission inside that window returns {"action":"rsvp_deadline"}:
+refresh the live tracker of every listed campaign, then record the user's answer or a
+not_attending citing the deadline and those reads.
+cancelled requires a recorded not_attending. Record cancelled only from visible evidence; status becomes cancelled and the event cannot be reviewed again. With
+preferences.max_unanswered_rsvps (default 3) upcoming admissions unanswered, gate returns
+idle/awaiting_rsvp. Existing databases migrate upcoming admitted events to needs_rsvp and queue tracker sync on
+first open. An event whose known start has passed cannot be queued or cancelled.
+finish refuses while upcoming admissions are unanswered or cancellations are queued. A finished
+campaign's gate still returns sync, cancel or rsvp_deadline work for its own registrations.
+
 Missing facts:
 
     python3 scripts/state.py question --event EVENT_ID --json '{"question":"Exact required question and choices"}'

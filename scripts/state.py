@@ -8,10 +8,23 @@ from pathlib import Path
 import sqlite3
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_HOME = Path.home() / '.local/share/eventmaxxer'
 OUTCOMES = {'pending', 'waitlisted', 'going', 'approved', 'declined'}
+ADMITTED = {'going', 'approved'}
+# Registrations the user still holds; organizers count these spots as taken.
+HELD = {'pending', 'waitlisted', 'going', 'approved'}
+# Exported registration states include cancellations the user asked for.
+TRACKED = OUTCOMES | {'cancelled'}
+# rsvp: NULL until admitted, then needs_rsvp -> attending | cancel_pending -> cancelled.
+RSVP_LIMIT = 3
+ATTEND_DECISION = 'Attend'
+DECLINE_DECISION = 'Not attending'
+# Tracker decision vocabulary, shared by RSVP ingestion and ranking.
+DECLINE_WORDS = {'skip', 'decline', 'declined', 'not attending', 'no'}
+ATTEND_WORDS = {'attend', 'attending', 'going', 'yes'}
 
 
 def canonical_url(url):
@@ -25,6 +38,21 @@ def canonical_url(url):
     query = urlencode([(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
                        if not k.startswith('utm_') and not (p.hostname.lower() in ('partiful.com', 'www.partiful.com') and k in ('rsvp', 'source', 'c'))])
     return urlunsplit((p.scheme.lower(), host, path, query, '' if p.hostname.lower() in ('partiful.com', 'www.partiful.com') else p.fragment))
+
+
+def start_epoch(value):
+    """Offset-aware ISO start as an epoch; anything else is an unknown start."""
+    try:
+        dt = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return dt.timestamp() if dt.utcoffset() is not None else None
+
+
+def started(metadata, now):
+    """True only when the event's known start has passed; its spot can no longer be released."""
+    start = start_epoch(metadata.get('start'))
+    return start is not None and start <= now
 
 
 class Store:
@@ -69,7 +97,20 @@ class Store:
         CREATE TABLE IF NOT EXISTS assessments (
           campaign TEXT REFERENCES campaigns(id), event TEXT REFERENCES events(id),
           data TEXT NOT NULL, PRIMARY KEY(campaign,event));
+        CREATE TABLE IF NOT EXISTS tracker_cells (
+          path TEXT, event TEXT REFERENCES events(id), decision TEXT NOT NULL, pending TEXT,
+          pending_file TEXT, PRIMARY KEY(path,event));
         ''')
+        if 'rsvp' not in {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}:
+            with self.transaction():
+                self.db.execute('ALTER TABLE events ADD COLUMN rsvp TEXT')
+                # Upcoming admissions recorded before the RSVP flow still need an attendance answer.
+                now = time.time()
+                for r in self.db.execute("SELECT id,metadata FROM events WHERE status IN ('going','approved')").fetchall():
+                    if not started(json.loads(r['metadata']), now):
+                        self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE id=?", (r['id'],))
+                # Re-export them so the tracker asks the user for the new decision.
+                self.db.execute("INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT m.campaign,m.event,1 FROM members m JOIN events e ON e.id=m.event WHERE e.rsvp='needs_rsvp'")
 
     @contextmanager
     def transaction(self):
@@ -128,7 +169,7 @@ class Store:
             self.db.execute('INSERT OR IGNORE INTO members VALUES(?,?)', (campaign, eid))
             # A preexisting success in this account still needs exporting for this campaign.
             status = self.db.execute('SELECT status FROM events WHERE id=?', (eid,)).fetchone()['status']
-            if status in OUTCOMES:
+            if status in TRACKED:
                 self.db.execute('INSERT OR IGNORE INTO sync(campaign,event) VALUES(?,?)', (campaign, eid))
         return eid
 
@@ -152,7 +193,8 @@ class Store:
             raise ValueError('Review needs a supported status and evidence')
         with self.transaction():
             e = self.event(eid)
-            if e['status'] in OUTCOMES or e['status'] == 'submitting':
+            if e['status'] in TRACKED or e['status'] == 'submitting':
+                # A cancelled registration is never reapplied to automatically.
                 raise ValueError('Do not overwrite a submission with review state')
             data = e['metadata']
             if metadata:
@@ -165,15 +207,23 @@ class Store:
     def gate(self, campaign, now=None):
         now = time.time() if now is None else now
         c = self.campaign(campaign)
-        if c['complete'] or not c['active']:
-            return {'action': 'idle', 'reason': 'complete' if c['complete'] else 'draft_or_paused'}
         account = c['account']
+        if c['complete']:
+            # A finished campaign still follows through on RSVPs for registrations it holds.
+            return self.rsvp_work(account, now, campaign) or {'action': 'idle', 'reason': 'complete'}
+        if not c['active']:
+            return {'action': 'idle', 'reason': 'draft_or_paused'}
         unknown = self.db.execute("SELECT id FROM events WHERE account=? AND status='submitting' LIMIT 1", (account,)).fetchone()
         if unknown:
             return {'action': 'reconcile', 'event': unknown['id']}
-        pending = self.db.execute('SELECT sync.event,sync.campaign FROM sync JOIN campaigns c ON c.id=sync.campaign WHERE c.account=? AND sync.pending=1 LIMIT 1', (account,)).fetchone()
-        if pending:
-            return {'action': 'sync', 'event': pending['event'], 'campaign': pending['campaign']}
+        work = self.rsvp_work(account, now)
+        if work:
+            return work
+        prefs = json.loads(c['config']).get('preferences', {})
+        unanswered = self.unanswered_rsvps(account, now)
+        if len(unanswered) >= prefs.get('max_unanswered_rsvps', RSVP_LIMIT):
+            # Quiet: the user was asked when each admission was recorded.
+            return {'action': 'idle', 'reason': 'awaiting_rsvp', 'events': [eid for eid, _ in unanswered]}
         ready, deadlines, needs_review = [], [], False
         for r in self.db.execute('SELECT e.* FROM events e JOIN members m ON e.id=m.event WHERE m.campaign=? ORDER BY e.rowid', (campaign,)):
             if r['status'] == 'discovered':
@@ -232,7 +282,101 @@ class Store:
                     (e['account'], service, until, evidence))
             elif outcome in OUTCOMES:
                 self.db.execute('DELETE FROM cooldowns WHERE account=? AND service=?', (e['account'], service))
-                self.db.execute('INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT campaign,event,1 FROM members WHERE event=?', (eid,))
+                if outcome in ADMITTED and not started(e['metadata'], now):
+                    self.db.execute("UPDATE events SET rsvp='needs_rsvp' WHERE id=? AND rsvp IS NULL", (eid,))
+                self._resync(eid)
+
+    def rsvp_work(self, account, now, campaign=None):
+        """Tracker sync and RSVP follow-through, account-wide or for one finished campaign."""
+        scope = None if campaign is None else {r['event'] for r in self.db.execute('SELECT event FROM members WHERE campaign=?', (campaign,))}
+        for r in self.db.execute('SELECT sync.event,sync.campaign FROM sync JOIN campaigns c ON c.id=sync.campaign WHERE c.account=? AND sync.pending=1 ORDER BY sync.rowid', (account,)):
+            if campaign is None or r['campaign'] == campaign:
+                return {'action': 'sync', 'event': r['event'], 'campaign': r['campaign']}
+        # Release spots the user will not use before taking any new ones.
+        for r in self.db.execute("SELECT id,metadata FROM events WHERE account=? AND rsvp='cancel_pending' AND status IN ('pending','waitlisted','going','approved') ORDER BY rowid", (account,)):
+            if (scope is None or r['id'] in scope) and not started(json.loads(r['metadata']), now):
+                return {'action': 'cancel', 'event': r['id'], 'reason': 'not_attending', 'campaigns': self.holders(r['id'])}
+        # The deadline only prompts a live tracker check; cancelling still needs a not_attending RSVP.
+        for eid, _ in self.deadline_releases(account, now):
+            if scope is None or eid in scope:
+                return {'action': 'rsvp_deadline', 'event': eid, 'campaigns': self.holders(eid)}
+        return None
+
+    def holders(self, eid):
+        """Campaigns whose trackers may hold the user's latest answer; read all before releasing."""
+        return [r['campaign'] for r in self.db.execute('SELECT campaign FROM members WHERE event=? ORDER BY campaign', (eid,))]
+
+    def unanswered_rsvps(self, account, now):
+        """Admitted upcoming events whose attendance the user has not confirmed."""
+        out = []
+        for r in self.db.execute("SELECT id,metadata FROM events WHERE account=? AND rsvp='needs_rsvp' ORDER BY rowid", (account,)):
+            start = start_epoch(json.loads(r['metadata']).get('start'))
+            if start is None or start > now:
+                out.append((r['id'], start))
+        return out
+
+    def admission(self, eid, outcome, evidence, now=None):
+        """Record a later organizer decision on a pending or waitlisted request."""
+        now = time.time() if now is None else now
+        if outcome not in OUTCOMES or not evidence.strip():
+            raise ValueError('Explicit observed outcome and evidence required')
+        with self.transaction():
+            e = self.event(eid)
+            if e['status'] not in ('pending', 'waitlisted') or e['rsvp'] == 'cancelled':
+                raise ValueError('Only an open pending or waitlisted request can change admission')
+            rsvp = e['rsvp']
+            if outcome in ADMITTED and rsvp is None and not started(e['metadata'], now):
+                rsvp = 'needs_rsvp'
+            elif outcome not in HELD:
+                rsvp = None  # The organizer closed the request; there is no spot left to release.
+            self.db.execute('UPDATE events SET status=?,evidence=?,rsvp=? WHERE id=?', (outcome, evidence, rsvp, eid))
+            self._resync(eid)
+
+    def rsvp(self, eid, intent, evidence, now=None):
+        """Record the user's own attendance answer. not_attending queues an automatic release."""
+        now = time.time() if now is None else now
+        if intent not in ('attending', 'not_attending') or not evidence.strip():
+            raise ValueError('RSVP needs attending or not_attending and the user\'s answer as evidence')
+        with self.transaction():
+            e = self.event(eid)
+            if e['status'] not in HELD or e['rsvp'] == 'cancelled':
+                raise ValueError('RSVP applies only to a registration the user still holds')
+            if started(e['metadata'], now):
+                raise ValueError('The event has started; there is no spot left to release')
+            rsvp, decision = ('attending', ATTEND_DECISION) if intent == 'attending' else ('cancel_pending', DECLINE_DECISION)
+            notes = (e['notes'] + '\n' if e['notes'] else '') + 'RSVP: ' + evidence
+            self.db.execute('UPDATE events SET rsvp=?,decision=?,notes=? WHERE id=?', (rsvp, decision, notes, eid))
+            self._resync(eid)
+
+    def cancelled(self, eid, evidence):
+        """Record an observed cancellation of a registration the user will not attend."""
+        if not evidence.strip():
+            raise ValueError('Visible cancellation evidence required')
+        with self.transaction():
+            e = self.event(eid)
+            if e['rsvp'] != 'cancel_pending':
+                raise ValueError('Cancel only after a recorded not_attending RSVP')
+            self.db.execute("UPDATE events SET status='cancelled',rsvp='cancelled',decision=?,evidence=? WHERE id=?",
+                            (DECLINE_DECISION, evidence, eid))
+            self._resync(eid)
+
+    def deadline_releases(self, account, now):
+        """Unanswered admissions inside an RSVP deadline the user opted into for an authorized campaign."""
+        out = []
+        for eid, start in self.unanswered_rsvps(account, now):
+            configs = [json.loads(r['config']) for r in self.db.execute(
+                'SELECT c.config FROM campaigns c JOIN members m ON m.campaign=c.id WHERE m.event=?', (eid,))]
+            # Opt-in only: silence counts as not attending only where the user set a deadline
+            # in an authorized campaign. Application consent alone never covers cancellation.
+            hours = [h for c in configs if c.get('authorization')
+                     for h in [c.get('preferences', {}).get('rsvp_deadline_hours')]
+                     if type(h) in (int, float) and h > 0]
+            if start is not None and hours and start - max(hours) * 3600 <= now:
+                out.append((eid, start))
+        return out
+
+    def _resync(self, eid):
+        self.db.execute('INSERT OR REPLACE INTO sync(campaign,event,pending) SELECT campaign,event,1 FROM members WHERE event=?', (eid,))
 
     def ack(self, campaign, eid, evidence):
         if not evidence.strip():
@@ -276,6 +420,13 @@ class Store:
                 raise ValueError('Discovery not complete')
             if any(e['status'] in ('discovered', 'ready', 'submitting', 'needs_input') for e in self.listing(campaign)):
                 raise ValueError('Unresolved events remain')
+            events = self.listing(campaign)
+            now = time.time()
+            if any(e['rsvp'] == 'cancel_pending' and not started(e['metadata'], now) for e in events):
+                raise ValueError('Cancellations the user requested remain')
+            mine = {e['id'] for e in events}
+            if any(eid in mine for eid, _ in self.unanswered_rsvps(c['account'], now)):
+                raise ValueError('Upcoming admissions still need an RSVP')
             if self.db.execute('SELECT 1 FROM sync WHERE campaign=? AND pending=1', (campaign,)).fetchone():
                 raise ValueError('Tracker sync pending')
             self.db.execute('UPDATE campaigns SET complete=1,active=0 WHERE id=?', (campaign,))
@@ -284,7 +435,7 @@ class Store:
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--home', type=Path, default=DEFAULT_HOME)
-    p.add_argument('command', choices=['init','authorize','profile','fact','add','alias','review','gate','reserve','result','ack','list','question','answer','configure','finish','pause'])
+    p.add_argument('command', choices=['init','authorize','profile','fact','add','alias','review','gate','reserve','result','ack','list','question','answer','configure','finish','pause','admission','rsvp','cancelled'])
     p.add_argument('--campaign'); p.add_argument('--account'); p.add_argument('--event'); p.add_argument('--url')
     p.add_argument('--json', default='{}', help='JSON data, or @path for a private JSON file')
     a = p.parse_args()
@@ -307,6 +458,9 @@ def main():
     elif cmd == 'answer': out = s.answer(**data)
     elif cmd == 'configure': out = s.configure(a.campaign, data)
     elif cmd == 'finish': out = s.finish(a.campaign)
+    elif cmd == 'admission': out = s.admission(a.event, **data)
+    elif cmd == 'rsvp': out = s.rsvp(a.event, **data)
+    elif cmd == 'cancelled': out = s.cancelled(a.event, data['evidence'])
     elif cmd == 'pause':
         s.campaign(a.campaign)
         with s.transaction(): s.db.execute('UPDATE campaigns SET active=0 WHERE id=?', (a.campaign,))

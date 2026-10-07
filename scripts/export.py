@@ -8,12 +8,71 @@ from pathlib import Path
 import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from state import Store, OUTCOMES, DEFAULT_HOME
+import time
+from state import Store, TRACKED, HELD, DEFAULT_HOME, DECLINE_WORDS, ATTEND_WORDS, started
 
 FIELDS = ['event_key','day','date','start','end','timezone','event','status','your_decision',
           'networking_fit','what_to_expect','location','hosts','url','attendance_notes','evidence']
 RECOMMENDATION_FIELDS = ['recommendation', 'fit_score', 'fit_confidence', 'target_people',
                          'why_recommended', 'conversation_plan', 'fit_sources', 'conflicting_event_keys']
+
+
+def intent(decision):
+    value = (decision or '').strip().lower()
+    return 'not_attending' if value in DECLINE_WORDS else 'attending' if value in ATTEND_WORDS else None
+
+
+def rsvp_intent(event):
+    return {'attending': 'attending', 'cancel_pending': 'not_attending', 'cancelled': 'not_attending'}.get(event['rsvp'])
+
+
+def ingest_rsvps(s, campaign, previous, destination):
+    """Treat a decision the user changed in the tracker as their RSVP; a decline queues a release."""
+    path = str(destination.resolve())
+    settle_checkpoint(s, path)
+    # Values the exporter wrote, including one whose write may have been interrupted.
+    known = {}
+    for r in s.db.execute('SELECT event,decision,pending FROM tracker_cells WHERE path=?', (path,)):
+        known[r['event']] = {r['decision'], r['pending']}
+    for event in s.listing(campaign):
+        if event['id'] not in previous:
+            continue
+        cell = previous[event['id']]['your_decision']
+        # A cell the exporter wrote is not a new answer; it may predate a chat RSVP.
+        if cell in known.get(event['id'], ()):
+            continue
+        answer = intent(cell)
+        # A past event's spot can no longer be released, so its cell stays a historical note.
+        if (answer and answer != rsvp_intent(event) and event['status'] in HELD
+                and event['rsvp'] != 'cancelled' and not started(event['metadata'], time.time())):
+            s.rsvp(event['id'], answer, f'User tracker decision "{cell}" in {path}')
+        # Mark this user edit as seen so it is never replayed over a later chat answer.
+        with s.transaction():
+            s.db.execute('INSERT OR REPLACE INTO tracker_cells(path,event,decision) VALUES(?,?,?)', (path, event['id'], cell))
+
+
+def settle_checkpoint(s, path):
+    """Resolve a write interrupted by a crash: its temporary file survives only if the replace never ran."""
+    orphans = []
+    with s.transaction():
+        for f, in s.db.execute('SELECT DISTINCT pending_file FROM tracker_cells WHERE path=? AND pending_file IS NOT NULL', (path,)).fetchall():
+            if os.path.exists(f):
+                s.db.execute('UPDATE tracker_cells SET pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
+                orphans.append(f)
+            else:
+                s.db.execute('UPDATE tracker_cells SET decision=pending,pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
+    # Delete the evidence only after the cleared marker is durable.
+    for f in orphans:
+        if os.path.exists(f):
+            os.unlink(f)
+
+
+def shown_decision(event, cell):
+    """Show the recorded RSVP, keeping the user's own wording only when it states the same answer."""
+    stated = intent(cell)
+    if not event['rsvp'] or (stated is not None and stated == rsvp_intent(event)):
+        return cell
+    return 'RSVP needed' if event['rsvp'] == 'needs_rsvp' else event['decision']
 
 
 def export(s, campaign, destination, timezone='America/Los_Angeles', recommendations=False, limit=3):
@@ -29,15 +88,20 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                 if row['event_key'] in previous:
                     raise ValueError('Duplicate keys in existing export')
                 previous[row['event_key']] = row
+    ingest_rsvps(s, campaign, previous, destination)
+    decisions = {k: v['your_decision'] for k, v in previous.items()}
+    for event in s.listing(campaign):
+        if event['status'] in TRACKED:
+            decisions[event['id']] = shown_decision(event, decisions.get(event['id'], event['decision']))
     fields = FIELDS + RECOMMENDATION_FIELDS if recommendations else FIELDS
     ranked = {}
     if recommendations:
         from recommend import rank
-        ranked = {r['event_key']: r for r in rank(s, campaign, limit=limit,
-                  decisions={k: v['your_decision'] for k, v in previous.items()})}
+        # Rank from the reconciled decision, not a cell made stale by a newer RSVP.
+        ranked = {r['event_key']: r for r in rank(s, campaign, limit=limit, decisions=decisions)}
     rows = []
     for event in s.listing(campaign):
-        if event['status'] not in OUTCOMES:
+        if event['status'] not in TRACKED:
             continue
         m = event['metadata']
         row = {field: '' for field in fields}
@@ -46,17 +110,25 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
                    location=m.get('location', ''), hosts=m.get('hosts', ''), url=event['url'],
                    attendance_notes=event['notes'], evidence=event['evidence'], timezone=timezone)
         for key in ('start', 'end'):
-            if m.get(key):
+            try:
                 dt = datetime.fromisoformat(m[key])
-                if dt.tzinfo is None:
-                    raise ValueError('Event times must include timezone offsets')
+            except (KeyError, TypeError, ValueError):
+                continue  # Missing or unreadable times stay unknown (blank).
+            if dt.utcoffset() is not None:
                 local = dt.astimezone(ZoneInfo(timezone))
                 row[key] = local.isoformat(timespec='minutes')
                 if key == 'start':
                     row.update(date=local.date().isoformat(), day=local.strftime('%A'))
+            # A time without an offset is ambiguous, so it also stays blank rather than guessed.
         if event['id'] in previous:
-            for key in ('your_decision', 'attendance_notes'):
-                row[key] = previous[event['id']][key]
+            row['attendance_notes'] = previous[event['id']]['attendance_notes']
+            earlier = previous[event['id']]['your_decision']
+            if (decisions[event['id']] != earlier and intent(earlier) is None
+                    and earlier not in ('', 'Undecided', 'RSVP needed')
+                    and 'Earlier decision: ' + earlier not in row['attendance_notes']):
+                # Keep the user's own wording when the decision cell shows the recorded RSVP instead.
+                row['attendance_notes'] = '\n'.join(filter(None, [row['attendance_notes'], 'Earlier decision: ' + earlier]))
+        row['your_decision'] = decisions[event['id']]
         if recommendations:
             r = ranked[event['id']]
             a = r['assessment'] or {}
@@ -69,20 +141,42 @@ def export(s, campaign, destination, timezone='America/Los_Angeles', recommendat
     keys = {r['event_key'] for r in rows}
     rows.extend({field: v.get(field, '') for field in fields} for k, v in previous.items() if k not in keys)
     rows.sort(key=lambda r: (r['date'] or '9999', r['start'], r['event_key']))
+    path = str(destination.resolve())
+    written = [(path, r['event_key'], r['your_decision']) for r in rows if r['event_key'] in keys]
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=destination.parent)
+    checkpointed = False
     try:
         with os.fdopen(fd, 'w', newline='') as f:
             writer = csv.DictWriter(f, fields)
             writer.writeheader()
             writer.writerows(rows)
+            f.flush()
+            os.fsync(f.fileno())
+        # Checkpoint before the file changes, tied to the temporary file: if a crash leaves that
+        # file behind, the replace never ran; if it is gone, these values reached the tracker.
+        with s.transaction():
+            for p, eid, decision in written:
+                s.db.execute('''INSERT INTO tracker_cells(path,event,decision,pending,pending_file) VALUES(?,?,?,?,?)
+                    ON CONFLICT(path,event) DO UPDATE SET pending=excluded.pending,pending_file=excluded.pending_file''',
+                    (p, eid, decision, decision, tmp))
+        checkpointed = True
         os.replace(tmp, destination)
-    finally:
-        if os.path.exists(tmp): os.unlink(tmp)
+    except BaseException:
+        if os.path.exists(tmp):
+            if checkpointed:
+                # The replace did not run: drop the checkpoint first, keeping the file as evidence if that fails.
+                with s.transaction():
+                    s.db.execute('UPDATE tracker_cells SET pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, tmp))
+            os.unlink(tmp)
+        raise
     with destination.open(newline='') as f:
         actual = list(csv.DictReader(f))
     if actual != rows:
         raise ValueError('Export read-back mismatch')
+    with s.transaction():
+        s.db.executemany('UPDATE tracker_cells SET decision=?,pending=NULL,pending_file=NULL WHERE path=? AND event=?',
+                         [(decision, p, eid) for p, eid, decision in written])
     tracker = json.loads(s.campaign(campaign)['config']).get('tracker', {})
     if tracker.get('kind') == 'csv' and tracker.get('path') and Path(tracker['path']).expanduser().resolve() == destination.resolve():
         for eid in keys:

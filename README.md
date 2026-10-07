@@ -52,6 +52,7 @@ An event calendar full of options:
 | 👤 **Reusable profile** | Saves verified facts so you do not repeat the same answers. |
 | 🌐 **Discover and apply** | Searches websites, checks fit and eligibility, and applies to matching free events. |
 | 📊 **Review and decide later** | Keeps Google Sheets or a CSV sorted by date, with event details, registration status, your attendance decisions and notes. |
+| ✋ **RSVP once accepted** | Asks whether you will attend each accepted event and automatically cancels the ones you won't, so hosts get the spot back. |
 | 🎯 **Prioritize attendance** | Builds an evidence-backed shortlist around the people you want to meet, with confidence, conversation plans and known overlaps. |
 | ⏱ **Resume automatically** | Saves cooldowns and wakes the agent when it can retry. |
 

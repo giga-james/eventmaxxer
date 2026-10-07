@@ -29,6 +29,8 @@ class Recommendations(unittest.TestCase):
         self.s.review(eid, 'ready', 'Free and eligible', {'free': True, 'eligible': True})
         self.s.reserve('one', eid)
         self.s.result(eid, status, 'Verified test status')
+        if status in ('approved', 'going'):
+            self.s.rsvp(eid, 'attending', 'Fictional user confirmed attendance')
         self.s.ack('one', eid, 'Test tracker readback')
         assess(self.s, 'one', eid, {'audience_fit': fit, 'conversation_access': 2,
             'confidence': confidence, 'target_people': 'Robotics procurement leads',
@@ -99,6 +101,45 @@ class Recommendations(unittest.TestCase):
         self.assertEqual(row['recommendation'], 'Skipped by you')
         self.assertEqual(row['attendance_notes'], 'Personal note')
         self.assertEqual(row['status'], 'approved')
+        # The tracker Skip is the user's RSVP, so the spot is queued for automatic release.
+        self.assertEqual(self.s.event(row['event_key'])['rsvp'], 'cancel_pending')
+        self.assertEqual(self.s.gate('one')['action'], 'sync')
+        self.assertEqual(row['your_decision'], 'Skip')
+
+    def test_chat_rsvp_overrides_stale_cell_in_ranking(self):
+        eid = self.event('a')
+        path = Path(self.tmp.name) / 'tracker.csv'
+        export(self.s, 'one', path, recommendations=True)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual((row['your_decision'], row['recommendation']), ('Attend', 'Shortlist'))
+        self.s.rsvp(eid, 'not_attending', 'User in chat: cannot go')
+        export(self.s, 'one', path)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual((row['your_decision'], row['recommendation']), ('Not attending', 'Skipped by you'))
+
+    def test_tracker_no_is_skipped_in_ranking(self):
+        eid = self.event('a')
+        path = Path(self.tmp.name) / 'tracker.csv'
+        export(self.s, 'one', path, recommendations=True)
+        with path.open() as f:
+            rows = list(csv.DictReader(f))
+        rows[0]['your_decision'] = 'No'
+        with path.open('w') as f:
+            w = csv.DictWriter(f, FIELDS + RECOMMENDATION_FIELDS); w.writeheader(); w.writerows(rows)
+        export(self.s, 'one', path)
+        with path.open() as f:
+            row = next(csv.DictReader(f))
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual((row['your_decision'], row['recommendation']), ('No', 'Skipped by you'))
+
+    def test_completed_cancellation_is_unavailable(self):
+        eid = self.event('a')
+        self.s.rsvp(eid, 'not_attending', 'User: no')
+        self.assertEqual(rank(self.s, 'one', now=self.now)[0]['recommendation'], 'Skipped by you')
+        self.s.cancelled(eid, 'Visible cancellation')
+        self.assertEqual(rank(self.s, 'one', now=self.now)[0]['recommendation'], 'Unavailable')
 
     def test_assessment_requires_goal_and_evidence(self):
         eid = self.s.add('one', 'https://example.org/new', {})

@@ -155,6 +155,363 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.gate('two'), {'action':'sync','event':first,'campaign':'one'})
         with self.assertRaises(ValueError): self.s.reserve('two', second)
 
+    def admit(self, slug='one', start='2026-10-07T17:30:00-07:00', outcome='approved'):
+        eid = self.s.add('one', 'https://partiful.com/e/' + slug,
+                         {'title':slug, 'service':'partiful.com', 'start':start})
+        self.s.review(eid, 'ready', 'Explicitly free', {'free':True, 'eligible':True})
+        self.s.reserve('one', eid, now=0)
+        self.s.result(eid, outcome, 'Approval visible', now=0)
+        self.s.ack('one', eid, 'Read back tracker row')
+        return eid
+
+    def test_admission_requires_rsvp_and_backlog_stops_new_applications(self):
+        later = 2_000_000_000
+        admitted = [self.admit(str(i), start='2033-05-18T03:33:20+00:00') for i in range(3)]
+        self.assertEqual(self.s.event(admitted[0])['rsvp'], 'needs_rsvp')
+        fresh = self.ready('fresh')
+        gate = self.s.gate('one', now=0)
+        self.assertEqual((gate['action'], gate['reason'], gate['events']), ('idle', 'awaiting_rsvp', admitted))
+        with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
+        self.s.rsvp(admitted[0], 'attending', 'User said yes on 2026-10-07')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        self.s.ack('one', admitted[0], 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'apply','event':fresh})
+        self.assertEqual(self.s.event(admitted[0])['decision'], 'Attend')
+        # Past events no longer count against the backlog.
+        self.assertEqual(self.s.unanswered_rsvps('account', later), [])
+
+    def test_not_attending_automatically_cancels_before_new_applications(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        fresh = self.ready('fresh')
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Cancelled')
+        self.s.rsvp(eid, 'not_attending', 'User on 2026-10-07: cannot make it')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'cancel','event':eid,'reason':'not_attending','campaigns':['one']})
+        with self.assertRaises(ValueError): self.s.reserve('one', fresh, now=0)
+        with self.assertRaises(ValueError): self.s.finish('one')
+        self.s.cancelled(eid, 'Visible: registration cancelled')
+        e = self.s.event(eid)
+        self.assertEqual((e['status'], e['rsvp'], e['decision']), ('cancelled', 'cancelled', 'Not attending'))
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'apply','event':fresh})
+        # A cancelled spot is never re-reviewed into a new application.
+        with self.assertRaises(ValueError): self.s.review(eid, 'ready', 'Free', {'free':True, 'eligible':True})
+        with self.assertRaises(ValueError): self.s.rsvp(eid, 'attending', 'Changed mind')
+
+    def test_unanswered_rsvp_is_released_at_deadline(self):
+        start = 100_000
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        # Without an opted-in deadline, silence never leads to a cancellation.
+        self.assertEqual(self.s.gate('one', now=start - 1)['action'], 'idle')
+        self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 24}})
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
+        self.assertEqual(self.s.gate('one', now=start - 86_400), {'action':'rsvp_deadline','event':eid,'campaigns':['one']})
+        # The deadline alone never authorizes a release; the agent must check the live tracker first.
+        with self.assertRaises(ValueError): self.s.cancelled(eid, 'Deadline passed')
+        self.s.configure('one', {'preferences': {'rsvp_deadline_hours': 48}})
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'rsvp_deadline')
+        self.s.rsvp(eid, 'not_attending', 'RSVP deadline passed; live tracker read shows no answer', now=start - 86_401)
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'cancel')
+        self.s.cancelled(eid, 'Visible cancellation')
+        self.assertEqual(self.s.event(eid)['status'], 'cancelled')
+
+    def test_deadline_check_honors_a_tracker_attend(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)},
+                                 'preferences':{'rsvp_deadline_hours':1_000_000}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Attend')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'rsvp_deadline')
+        export(self.s, 'one', path)  # The live tracker refresh the gate asks for.
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+
+    def test_finished_campaign_follows_through_on_rsvps(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        self.s.ack('one', eid, 'Read back')
+        self.s.finish('one')
+        # Simulate a pre-RSVP database whose campaign was already finished.
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.gate('one', now=0), {'action':'sync','event':eid,'campaign':'one'})
+        self.s.ack('one', eid, 'Read back')
+        self.s.rsvp(eid, 'not_attending', 'User: cannot go')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+        self.s.cancelled(eid, 'Visible cancellation')
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0), {'action':'idle','reason':'complete'})
+
+    def test_later_admission_starts_rsvp_and_pending_can_be_withdrawn(self):
+        eid = self.admit(outcome='pending', start='2033-05-18T03:33:20+00:00')
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+        self.s.admission(eid, 'approved', 'Approval email visible')
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'sync')
+        with self.assertRaises(ValueError): self.s.admission(eid, 'declined', 'Already approved')
+        self.s.ack('one', eid, 'Read back')
+        other = self.admit('two', outcome='waitlisted', start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(other, 'not_attending', 'User: withdraw')
+        self.s.cancelled(other, 'Left waitlist')
+        with self.assertRaises(ValueError): self.s.admission(other, 'approved', 'Late approval')
+
+    def test_existing_admissions_migrate_to_needs_rsvp(self):
+        eid = self.admit()
+        self.s.db.execute("UPDATE events SET rsvp=NULL")
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+
+    def test_export_shows_rsvp_and_cancellation(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        asked = self.admit('asked', start='2033-05-18T03:33:20+00:00')
+        gone = self.admit('gone', start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: rows = {r['event_key']: r for r in csv.DictReader(f)}
+        rows[gone]['your_decision'] = 'Maybe'
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows.values())
+        self.s.rsvp(gone, 'not_attending', 'User declined')
+        self.s.cancelled(gone, 'Visible cancellation')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: rows = {r['event_key']: r for r in csv.DictReader(f)}
+        self.assertEqual(rows[asked]['your_decision'], 'RSVP needed')
+        rows[asked]['your_decision'] = 'Attend'
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows.values())
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(asked)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.assertEqual((rows[gone]['status'], rows[gone]['your_decision']), ('cancelled', 'Not attending'))
+
+    def write_decision(self, path, eid, decision):
+        with path.open(newline='') as f: rows = list(csv.DictReader(f))
+        for r in rows:
+            if r['event_key'] == eid: r['your_decision'] = decision
+        with path.open('w', newline='') as f:
+            w = csv.DictWriter(f, FIELDS); w.writeheader(); w.writerows(rows)
+
+    def decision(self, path, eid):
+        with path.open(newline='') as f:
+            return next(r['your_decision'] for r in csv.DictReader(f) if r['event_key'] == eid)
+
+    def test_tracker_can_reverse_queued_cancellation_and_chat_answer_wins_over_stale_cell(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Skip')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        # User corrects the cell before the agent releases the spot.
+        self.write_decision(path, eid, 'Attend')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.assertEqual(self.decision(path, eid), 'Attend')
+        # A later chat answer is not undone by the cell the export wrote before it.
+        self.s.rsvp(eid, 'not_attending', 'User in chat: cannot go')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+
+    def test_migrated_admissions_are_queued_for_tracker_sync(self):
+        eid = self.admit()
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertEqual(self.s.gate('one', now=0), {'action':'sync','event':eid,'campaign':'one'})
+
+    def test_finish_waits_for_upcoming_rsvps(self):
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        with self.assertRaises(ValueError): self.s.finish('one')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        self.s.ack('one', eid, 'Read back')
+        self.s.finish('one')
+
+    def test_draft_campaign_deadline_cannot_cancel(self):
+        start = 100_000
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.configure('one', {'preferences':{'rsvp_deadline_hours':24}})
+        self.s.init('draft', 'account', {'sources':[], 'preferences':{'rsvp_deadline_hours':1000}})
+        self.s.add('draft', 'https://partiful.com/e/one', {})
+        self.s.ack('draft', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=start - 86_401)['action'], 'idle')
+        self.assertEqual(self.s.gate('one', now=start - 86_400)['action'], 'rsvp_deadline')
+        # Every tracker holding the registration is named, including one from another campaign.
+        self.assertEqual(self.s.gate('one', now=start - 86_400)['campaigns'], ['draft', 'one'])
+
+    def test_unparseable_start_is_unknown(self):
+        for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):
+            eid = self.admit(str(i), start=start)
+            self.assertEqual(self.s.unanswered_rsvps('account', 0)[-1], (eid, None))
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        with self.assertRaises(ValueError): self.s.finish('one')
+
+    def test_organizer_decline_clears_queued_cancellation(self):
+        eid = self.admit(outcome='pending', start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: withdraw')
+        self.s.ack('one', eid, 'Read back')
+        self.s.admission(eid, 'declined', 'Organizer declined the request')
+        self.s.ack('one', eid, 'Read back')
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+        self.s.finish('one')
+
+    def test_past_admissions_are_not_migrated_or_released(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        past = self.admit('past', start='2020-01-01T18:00:00+00:00')
+        self.s.rsvp(past, 'attending', 'User: yes', now=0)
+        self.s.ack('one', past, 'Read back')
+        export(self.s, 'one', path)
+        self.write_decision(path, past, 'Skip')
+        # Simulate a pre-RSVP database with a historical Skip and no tracker_cells record.
+        self.s.db.execute("ALTER TABLE events DROP COLUMN rsvp")
+        self.s.db.execute("DELETE FROM tracker_cells")
+        self.s.db.commit()
+        self.s.db.close()
+        self.s = Store(self.home)
+        self.assertIsNone(self.s.event(past)['rsvp'])
+        export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, past), 'Skip')
+        self.assertEqual(self.s.gate('one')['action'], 'idle')
+        with self.assertRaises(ValueError): self.s.rsvp(past, 'not_attending', 'Too late')
+
+    def test_queued_release_for_started_event_does_not_block(self):
+        eid = self.admit(start='1970-01-02T03:46:40+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: no', now=0)
+        self.s.ack('one', eid, 'Read back')
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'cancel')
+        self.assertEqual(self.s.gate('one', now=100_000)['action'], 'idle')
+
+    def test_migrated_unknown_start_is_exportable(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        for i, start in enumerate(('TBD', '2033-05-18T03:33:20')):
+            self.admit(str(i), start=start)
+        export(self.s, 'one', path)
+        with path.open(newline='') as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([(r['start'], r['date'], r['day']) for r in rows], [('', '', '')] * 2)
+        self.assertEqual(self.s.gate('one', now=0)['action'], 'idle')
+
+    def test_unrecognized_decision_still_asks_for_rsvp(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        self.write_decision(path, eid, 'Maybe')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['your_decision'], 'RSVP needed')
+        self.assertIn('Earlier decision: Maybe', row['attendance_notes'])
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['attendance_notes'].count('Earlier decision: Maybe'), 1)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'needs_rsvp')
+        # An explicit chat answer replaces custom wording in the cell.
+        self.write_decision(path, eid, 'Maybe later')
+        self.s.rsvp(eid, 'attending', 'User in chat: yes')
+        export(self.s, 'one', path)
+        with path.open(newline='') as f: row = next(csv.DictReader(f))
+        self.assertEqual(row['your_decision'], 'Attend')
+        self.assertIn('Earlier decision: Maybe later', row['attendance_notes'])
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+
+    def test_admission_after_start_needs_no_rsvp(self):
+        late = self.s.add('one', 'https://partiful.com/e/late', {'title':'late', 'service':'partiful.com', 'start':'1970-01-01T00:00:10+00:00'})
+        self.s.review(late, 'ready', 'Free', {'free':True, 'eligible':True})
+        self.s.reserve('one', late, now=0)
+        self.s.result(late, 'approved', 'Reconciled after the event', now=20)
+        self.s.ack('one', late, 'Read back')
+        self.assertIsNone(self.s.event(late)['rsvp'])
+        eid = self.s.add('one', 'https://partiful.com/e/pend', {'title':'pend', 'service':'partiful.com', 'start':'1970-01-01T00:00:10+00:00'})
+        self.s.review(eid, 'ready', 'Free', {'free':True, 'eligible':True})
+        self.s.reserve('one', eid, now=0)
+        self.s.result(eid, 'pending', 'Pending', now=0)
+        self.s.ack('one', eid, 'Read back')
+        self.s.admission(eid, 'approved', 'Late approval email', now=20)
+        self.assertIsNone(self.s.event(eid)['rsvp'])
+
+    def test_interrupted_export_is_not_replayed_over_chat_answer(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'not_attending', 'User: no')
+        self.s.ack('one', eid, 'Read back')
+        # The file is replaced, then the process dies before confirming the checkpoint.
+        import os
+        real_replace = os.replace
+        def replace_then_die(src, dst):
+            real_replace(src, dst)
+            raise RuntimeError('killed')
+        with patch('export.os.replace', side_effect=replace_then_die):
+            with self.assertRaises(RuntimeError): export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+        self.s.rsvp(eid, 'attending', 'User in chat: actually yes')
+        export(self.s, 'one', path)
+        self.assertEqual(self.s.event(eid)['rsvp'], 'attending')
+        self.assertEqual(self.decision(path, eid), 'Attend')
+
+    def test_checkpoint_from_write_that_never_landed_is_discarded(self):
+        path = self.home / 'events.csv'
+        self.s.configure('one', {'tracker':{'kind':'csv','path':str(path)}})
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        self.s.rsvp(eid, 'attending', 'User: yes')
+        export(self.s, 'one', path)
+        self.assertEqual(self.decision(path, eid), 'Attend')
+        # A hard kill after the checkpoint but before the replace leaves its temporary file behind.
+        orphan = self.home / 'tmp-orphan'
+        orphan.write_text('partial')
+        self.s.db.execute('UPDATE tracker_cells SET pending=?,pending_file=? WHERE event=?', ('Not attending', str(orphan), eid))
+        self.s.db.commit()
+        # The user then deliberately types that same value into the still-unchanged CSV.
+        self.write_decision(path, eid, 'Not attending')
+        export(self.s, 'one', path)
+        self.assertFalse(orphan.exists())
+        self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
+        self.assertEqual(self.decision(path, eid), 'Not attending')
+
+    def test_checkpoint_recovery_keeps_evidence_until_committed(self):
+        from export import settle_checkpoint
+        path = self.home / 'events.csv'
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        orphan = self.home / 'tmp-orphan'
+        orphan.write_text('partial')
+        self.s.db.execute('UPDATE tracker_cells SET pending=?,pending_file=? WHERE event=?', ('Not attending', str(orphan), eid))
+        self.s.db.commit()
+        # The recovery transaction fails to commit: the orphan must survive as evidence.
+        from contextlib import contextmanager
+        @contextmanager
+        def dies_before_commit():
+            self.s.db.execute('BEGIN IMMEDIATE')
+            try:
+                yield
+            finally:
+                self.s.db.rollback()
+            raise RuntimeError('killed')
+        with patch.object(self.s, 'transaction', dies_before_commit):
+            with self.assertRaises(RuntimeError): settle_checkpoint(self.s, str(path.resolve()))
+        self.assertTrue(orphan.exists())
+        settle_checkpoint(self.s, str(path.resolve()))
+        self.assertFalse(orphan.exists())
+        row = self.s.db.execute('SELECT decision,pending FROM tracker_cells WHERE event=?', (eid,)).fetchone()
+        self.assertEqual((row['decision'], row['pending']), ('RSVP needed', None))
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib
