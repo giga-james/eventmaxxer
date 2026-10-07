@@ -485,6 +485,33 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.s.event(eid)['rsvp'], 'cancel_pending')
         self.assertEqual(self.decision(path, eid), 'Not attending')
 
+    def test_checkpoint_recovery_keeps_evidence_until_committed(self):
+        from export import settle_checkpoint
+        path = self.home / 'events.csv'
+        eid = self.admit(start='2033-05-18T03:33:20+00:00')
+        export(self.s, 'one', path)
+        orphan = self.home / 'tmp-orphan'
+        orphan.write_text('partial')
+        self.s.db.execute('UPDATE tracker_cells SET pending=?,pending_file=? WHERE event=?', ('Not attending', str(orphan), eid))
+        self.s.db.commit()
+        # The recovery transaction fails to commit: the orphan must survive as evidence.
+        from contextlib import contextmanager
+        @contextmanager
+        def dies_before_commit():
+            self.s.db.execute('BEGIN IMMEDIATE')
+            try:
+                yield
+            finally:
+                self.s.db.rollback()
+            raise RuntimeError('killed')
+        with patch.object(self.s, 'transaction', dies_before_commit):
+            with self.assertRaises(RuntimeError): settle_checkpoint(self.s, str(path.resolve()))
+        self.assertTrue(orphan.exists())
+        settle_checkpoint(self.s, str(path.resolve()))
+        self.assertFalse(orphan.exists())
+        row = self.s.db.execute('SELECT decision,pending FROM tracker_cells WHERE event=?', (eid,)).fetchone()
+        self.assertEqual((row['decision'], row['pending']), ('RSVP needed', None))
+
     def test_runner_account_lock(self):
         import fcntl
         import hashlib

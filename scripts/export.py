@@ -53,13 +53,18 @@ def ingest_rsvps(s, campaign, previous, destination):
 
 def settle_checkpoint(s, path):
     """Resolve a write interrupted by a crash: its temporary file survives only if the replace never ran."""
+    orphans = []
     with s.transaction():
         for f, in s.db.execute('SELECT DISTINCT pending_file FROM tracker_cells WHERE path=? AND pending_file IS NOT NULL', (path,)).fetchall():
             if os.path.exists(f):
                 s.db.execute('UPDATE tracker_cells SET pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
-                os.unlink(f)
+                orphans.append(f)
             else:
                 s.db.execute('UPDATE tracker_cells SET decision=pending,pending=NULL,pending_file=NULL WHERE path=? AND pending_file=?', (path, f))
+    # Delete the evidence only after the cleared marker is durable.
+    for f in orphans:
+        if os.path.exists(f):
+            os.unlink(f)
 
 
 def shown_decision(event, cell):
